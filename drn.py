@@ -61,8 +61,8 @@ class DRN(object):
     def _update_global_weight(self, sample):
         if self._distance(sample, self.wg):
             self.wg = self._update_weight(sample, self.wg, self.glr)
-            self._grouping()
-            print(self.group)
+            if len(self.group) > 0:
+                self._grouping()
 
     def _update_weight(self, sample, weight, lr):
         _, _, w1, w2 = self._split_weight(sample, weight)
@@ -76,6 +76,51 @@ class DRN(object):
         return front, back, w1, w2
 
     def _grouping(self):
+        while True:
+            resonance, idx_s, idx_l, w_ij_1, w_ij_2 = self._condition_for_grouping()
+            if not resonance:
+                break
+
+            # merge two clusters
+            self.w[idx_s] = np.hstack((w_ij_1, w_ij_2))
+            to_delete_group = []
+
+            # reconnect nodes previously connected to "idx_l" to "idx_s"
+            for check in self.group:
+                if idx_l in check:
+                    item1, item2 = check
+                    reconnection = {item1, item2}
+                    _, _ = reconnection.remove(idx_l), reconnection.add(idx_s)
+                    reconnection = sorted(reconnection)
+                    if not len(reconnection) == 2:  # self-connection
+                        to_delete_group.append((item1, item2))
+                    else:  # update the synaptic strength
+                        item1, item2 = reconnection
+                        subtraction = np.atleast_2d(self.w[item1] - self.w[item2])
+                        center_of_mass_diff = (subtraction[:, :self.dim] + subtraction[:, self.dim:]) / 2
+                        T = np.exp(-self.alpha * l2_norm(center_of_mass_diff))
+                        self.group[(item1, item2)] = T
+
+            # delete the collected items from group and update w and n_category
+            for delete in to_delete_group:
+                del self.group[delete]
+            self.w = np.delete(self.w, idx_l, axis=0)
+            self.n_category -= 1
+
+            # update indices > idx_l
+            to_delete_group.clear()
+            for check in self.group:
+                if any([c > idx_l for c in check]):
+                    item1, item2 = check
+                    residuals = [-1 if item > idx_l else 0 for item in check]
+                    item1, item2 = item1 - residuals[0], item2 - residuals[1]
+                    self.group[(item1, item2)] = self.group[check]
+                    to_delete_group.append(check)
+
+            for delete in to_delete_group:
+                del self.group[delete]
+
+        """
         to_delete_group, to_delete_index = [], []
         for connection in self.group:
             smaller, larger = connection  # comparison in the index order not the size
@@ -110,6 +155,12 @@ class DRN(object):
         # remove inappropriate connections
         for delete in to_delete_group:
             del self.group[delete]
+        """
+
+    def _condition_for_grouping(self):
+        idx_s, idx_l = max(self.group, key=lambda x: self.group[x])
+        resonance, w_ij_1, w_ij_2 = self._resonance_between_clusters(idx_s, idx_l)
+        return resonance, idx_s, idx_l, w_ij_1, w_ij_2
 
     def _resonance_between_clusters(self, cluster1, cluster2):
         front, back = self.wg[:, :self.dim], self.wg[:, self.dim:]
@@ -144,28 +195,24 @@ class DRN(object):
         self.w = np.vstack((self.w, new_weight))
 
     def _add_group(self, v_nodes, sample, condition):
-        print("11. ADD GROUP")
-        print("V_NODES 11: ", v_nodes)
         front, back, _, _ = self._split_weight(sample, self.w[v_nodes])
         center_of_mass = (front + back) / 2
         to_connect = np.copy(v_nodes)
-        print("V_NODES 22: ", to_connect)
-        print("n_category: ", self.n_category)
+
         if not condition:
             center_of_mass = np.vstack((center_of_mass, sample))
             to_connect = np.hstack((to_connect, self.n_category - 1))
 
-        print("V_NODES 33: ", to_connect)
         for first in range(len(to_connect)):
             for second in range(first + 1, len(to_connect)):
                 smaller, larger = sorted([to_connect[first], to_connect[second]])
                 # new connections get added (first condition)
                 # and synaptic strengths get updated (second condition)
                 T = np.exp(-self.alpha * l2_norm(center_of_mass[first] - center_of_mass[second]))
-                if not T == 0 or condition and v_nodes[0] in (smaller, larger):
+                if not T == 0 or v_nodes[0] in (smaller, larger):
                     self.group[(smaller, larger)] = T
 
-    def train(self, x, epochs=1):
+    def train(self, x, epochs=1, shuffle=True, train=True):
         """
         Description
             - Train DRN model with the input vectors
@@ -175,19 +222,23 @@ class DRN(object):
             - x: 2d array of size (samples, features), where all features can
                  range [-inf, inf]
             - epochs: the number of training loop
+            - permute: whether to shuffle the x's when training
 
         Return
             - self: DRN class itself
+            - classes: the categories of each sample
         """
         # check if the input vectors (x) are of shape (samples, features)
+        x = np.atleast_2d(x)
         assert len(x.shape) == 2, "Wrong input vector shape: input.shape = (samples, features)"
 
+        classes = []
         # training for "epochs" times
         for epoch in range(epochs):
             # randomly shuffle data
-            i = 0
-            for sample in np.random.permutation(x):
-                print("printing i: " + str(i))
+            if shuffle:
+                x = np.random.permutation(x)
+            for sample in x:
                 # init the cluster weights for the first input vector
                 if self.w is None and self.wg is None:
                     self._init_weights(x[0])
@@ -199,29 +250,23 @@ class DRN(object):
                 # node activation & template matching
                 activations = self._activation(sample)
                 v_node_selection = np.argsort(activations)[::-1][:self.v]
+                classes.append(v_node_selection[0])
 
-                # check if resonance occurred
-                resonance = self._template_matching(sample, v_node_selection)
-                if resonance:
-                    # update weight for the cluster
-                    category = v_node_selection[0]
-                    self.w[category] = self._update_weight(sample, self.w[category], self.lr)
-                else:
-                    # no matching occurred
-                    print("NEW CATEGORY")
-                    print("NEW CATEGORY")
-                    self._add_category(sample)
+                if train:
+                    # check if resonance occurred
+                    resonance = self._template_matching(sample, v_node_selection)
+                    if resonance:
+                        # update weight for the cluster
+                        category = v_node_selection[0]
+                        self.w[category] = self._update_weight(sample, self.w[category], self.lr)
+                    else:
+                        # no matching occurred
+                        self._add_category(sample)
 
-                # group the v-nodes
-                if self.n_category > 1:
-                    self._add_group(v_node_selection, sample, resonance)
-                i += 1
-        print("Resulting model parameters:")
-        print(self.w)
-        print(self.wg)
-        print(self.group)
-        print(self.n_category)
-        return self
+                    # group the v-nodes
+                    if self.n_category > 1:
+                        self._add_group(v_node_selection, sample, resonance)
+        return self, classes
 
     def test(self, x, train=False):
         """
@@ -237,15 +282,11 @@ class DRN(object):
         Return
             - self: DRN class itself
         """
-        pass
+        x = np.atleast_2d(x)
+        assert len(x.shape) == 2, "Wrong input vector shape: input.shape = (samples, features)"
 
-
-class rDRN(DRN):
-    def _grouping(self):
-        pass
-
-    def _add_group(self):
-        pass
+        _, clustering_result = self.train(x, shuffle=False, train=train)
+        return clustering_result
 
 
 class DRNMAP(object):
