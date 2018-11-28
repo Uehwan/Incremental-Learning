@@ -24,7 +24,7 @@
         > 18.11.14.: DRN implementation 1) train, 2) template matching
         > 18.11.16.: DRN implementation 1) group-related functions
         > 18.11.20.: DRN testing & debugging
-        > 18.11.21.: DRNMAP implementation 1) rDRN
+        > 18.11.28.: DRN testing & debugging (compare against MATLAB DRN)
     - TO DO's
         > Extend Fuzzy DRN => Fusion DRN 
 """
@@ -119,43 +119,6 @@ class DRN(object):
 
             for delete in to_delete_group:
                 del self.group[delete]
-
-        """
-        to_delete_group, to_delete_index = [], []
-        for connection in self.group:
-            smaller, larger = connection  # comparison in the index order not the size
-
-            # pass if already removed in the previous steps
-            if smaller in to_delete_index or larger in to_delete_index:
-                continue
-
-            resonance, w_ij_1, w_ij_2 = self._resonance_between_clusters(self.w[smaller], self.w[larger])
-            if resonance:
-                # merge two clusters
-                to_delete_index.append(larger)
-                self.w[smaller] = np.hstack((w_ij_1, w_ij_2))
-                self.w = np.delete(self.w, larger, axis=0)
-                self.n_category -= 1
-                # reconnect nodes previously connected to "larger" to "smaller"
-                for check in self.group:
-                    if larger in check:
-                        item1, item2 = check
-                        reconnection = {item1, item2}
-                        _, _ = reconnection.remove(larger), reconnection.add(smaller)
-                        reconnection = sorted(reconnection)
-                        if not len(reconnection) == 2:  # self-connection
-                            to_delete_group.append((item1, item2))
-                        else:
-                            print("reconnection: ", reconnection)
-                            item1, item2 = reconnection
-                            subtraction = np.atleast_2d(self.w[item1] - self.w[item2])
-                            center_of_mass_diff = (subtraction[:, :self.dim] + subtraction[:, self.dim:]) / 2
-                            T = np.exp(-self.alpha * l2_norm(center_of_mass_diff))
-                            self.group[(item1, item2)] = T
-        # remove inappropriate connections
-        for delete in to_delete_group:
-            del self.group[delete]
-        """
 
     def _condition_for_grouping(self):
         idx_s, idx_l = max(self.group, key=lambda x: self.group[x])
@@ -296,10 +259,24 @@ class DRNMAP(object):
 
 if __name__ == '__main__':
     import random
+    import matplotlib.pyplot as plt
 
-    random.seed(7810)
+
+    def make_cluster_data():
+        # TO DO: fixed mean, cov, num_cluster => parameterize!
+        x, y = np.array([]), np.array([])
+        mean = [[0.3, 0.2], [0.2, 0.7], [0.5, 0.5], [0.8, 0.4], [0.7, 0.8]]
+        cov = [[0.001, 0], [0, 0.001]]
+        for i in range(len(mean)):
+            x_temp, y_temp = np.random.multivariate_normal(mean[i], cov, 30).T
+            x = np.append(x, x_temp)
+            y = np.append(y, y_temp)
+        return x, y
+
+    random.seed(43)
     print("TEST of DRN")
     data = io.loadmat('data.mat')['points']
+
     data_test = np.array([[4, 4],
                           [-2, -2],
                           [-5, 5],
@@ -312,10 +289,61 @@ if __name__ == '__main__':
                           [10, -10],
                           [-10, 10],
                           [5, 8]])
-    drn = DRN()
+    
+    drn = DRN(lr=1.0, rho=0.85)
+    drn.train(data, shuffle=False)
+    classes = np.array(drn.test(data))
+    plt.figure(1)
+    plt.plot(data[:, 0], data[:, 1], 'o')
+    plt.title('Original data')
+
+    plt.figure(2)
+    for i in range(drn.n_category):
+        plt.plot(data[classes==i, 0], data[classes==i, 1], 'x')
+    plt.title('Classification result')
+
+    plt.show()
     # sample1 = data[45]
     # dummy_w = np.hstack((data[:10], data[30:40]))
     # ff, bb = dummy_w[:, :drn.dim], dummy_w[:, drn.dim:]
     # ww1, ww2 = np.minimum(sample1, ff), np.maximum(sample1, bb)
     # drn.train(data)
     # print(drn.n_category)
+
+    '''
+    testART = DRN(rho=0.77)
+
+    # training the FusionART
+    x, y = make_cluster_data()
+    z = list(zip(x, y))
+    random.shuffle(z)
+    x, y = zip(*z)
+
+    classification_result_during_training = []
+    classification_result_after_training = []
+    for i in range(len(x)):
+        _, tmp_class = testART.train(np.array([x[i], y[i]]))
+        classification_result_during_training.append(tmp_class)
+
+    classified_x, classified_y = [[np.array([]) for _ in range(testART.n_category)] for _ in range(2)]
+    for i in range(len(x)):
+        _, tmp_class = testART.train(np.array([x[i], y[i]]), train=False)
+        tmp_class = tmp_class[0]
+        classified_x[tmp_class] = np.append(classified_x[tmp_class], np.array([x[i]]))
+        classified_y[tmp_class] = np.append(classified_y[tmp_class], np.array([y[i]]))
+        classification_result_after_training.append(tmp_class)
+
+    # print out the classification results
+    plt.figure(1)
+    plt.plot(x, y, 'x')
+    plt.title('Original data')
+    plt.axis([0, 1, 0, 1])
+
+    plt.figure(2)
+    for i in range(testART.n_category):
+        plt.plot(classified_x[i], classified_y[i], 'x')
+    plt.title('Classification result')
+    plt.axis([0, 1, 0, 1])
+
+    plt.show()
+    '''
