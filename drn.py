@@ -109,26 +109,35 @@ class DRN(object):
 
             # update indices > idx_l
             to_delete_group.clear()
+            to_add_group = []
             for check in self.group:
                 if any([c > idx_l for c in check]):
                     item1, item2 = check
                     residuals = [-1 if item > idx_l else 0 for item in check]
                     item1, item2 = item1 - residuals[0], item2 - residuals[1]
-                    self.group[(item1, item2)] = self.group[check]
+                    to_add_group.append([(item1, item2), self.group[check]])
+                    # self.group[(item1, item2)] = self.group[check]
                     to_delete_group.append(check)
+
+            for pair, strength in to_add_group:
+                self.group[pair] = strength
 
             for delete in to_delete_group:
                 del self.group[delete]
 
     def _condition_for_grouping(self):
-        idx_s, idx_l = max(self.group, key=lambda x: self.group[x])
-        resonance, w_ij_1, w_ij_2 = self._resonance_between_clusters(idx_s, idx_l)
-        return resonance, idx_s, idx_l, w_ij_1, w_ij_2
+        for idx_s, idx_l in self.group:
+            resonance, w_ij_1, w_ij_2 = self._resonance_between_clusters(idx_s, idx_l)
+            if resonance:
+                return resonance, idx_s, idx_l, w_ij_1, w_ij_2
+        return False, idx_s, idx_l, w_ij_1, w_ij_2
+        # idx_s, idx_l = max(self.group, key=lambda x: self.group[x])
+        # return resonance, idx_s, idx_l, w_ij_1, w_ij_2
 
-    def _resonance_between_clusters(self, cluster1, cluster2):
+    def _resonance_between_clusters(self, idx_s, idx_l):
         front, back = self.wg[:, :self.dim], self.wg[:, self.dim:]
         M = np.prod(back - front)
-        cluster1, cluster2 = np.atleast_2d(cluster1), np.atleast_2d(cluster2)
+        cluster1, cluster2 = np.atleast_2d(self.w[idx_s]), np.atleast_2d(self.w[idx_l])
         w_i_front, w_i_back = cluster1[:, :self.dim], cluster1[:, self.dim:]
         w_j_front, w_j_back = cluster2[:, :self.dim], cluster2[:, self.dim:]
         w_ij_front, w_ij_back = np.minimum(w_i_front, w_j_front), np.maximum(w_i_back, w_j_back)
@@ -229,6 +238,13 @@ class DRN(object):
                     # group the v-nodes
                     if self.n_category > 1:
                         self._add_group(v_node_selection, sample, resonance)
+                """
+                print("After training the following parameters have been modified...")
+                print("1. Weight Vector: ", self.w)
+                print("2. Global Vector: ", self.wg)
+                print("3. Number of Categories: ", self.n_category)
+                print("4. Groups: ", self.group)
+                """
         return self, classes
 
     def test(self, x, train=False):
@@ -260,6 +276,7 @@ class DRNMAP(object):
 if __name__ == '__main__':
     import random
     import matplotlib.pyplot as plt
+    import matplotlib.patches as patches
 
 
     def make_cluster_data():
@@ -290,19 +307,31 @@ if __name__ == '__main__':
                           [-10, 10],
                           [5, 8]])
     
-    drn = DRN(lr=1.0, rho=0.85)
+    drn = DRN(lr=1.0, rho=0.9)
+
+    # data = data[:10]
     drn.train(data, shuffle=False)
+
     classes = np.array(drn.test(data))
+
     plt.figure(1)
     plt.plot(data[:, 0], data[:, 1], 'o')
     plt.title('Original data')
 
     plt.figure(2)
     for i in range(drn.n_category):
-        plt.plot(data[classes==i, 0], data[classes==i, 1], 'x')
+        plt.plot(data[classes == i, 0], data[classes == i, 1], 'x')
+    # rect = patches.Rectangle((50, 100), 40, 30, linewidth=2, edgecolor='r', facecolor='none')
+    plt.gca().add_patch(
+        plt.Rectangle((drn.wg[0][0], drn.wg[0][1]),
+                      drn.wg[0][2] - drn.wg[0][0],
+                      drn.wg[0][3] - drn.wg[0][1], fill=False,
+                      edgecolor='r', linewidth=3)
+    )
     plt.title('Classification result')
 
     plt.show()
+
     # sample1 = data[45]
     # dummy_w = np.hstack((data[:10], data[30:40]))
     # ff, bb = dummy_w[:, :drn.dim], dummy_w[:, drn.dim:]
