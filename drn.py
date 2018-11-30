@@ -83,7 +83,13 @@ class DRN(object):
 
             # merge two clusters
             self.w[idx_s] = np.hstack((w_ij_1, w_ij_2))
-            to_delete_group = []
+            to_delete_group, to_add_group = [], []
+
+            # print("#################################################")
+            # print("Grouping two clusters: ", idx_s, " and ", idx_l)
+            # print("Group Before Merging: ")
+            # for item_indices in self.group:
+            #    print(item_indices)
 
             # reconnect nodes previously connected to "idx_l" to "idx_s"
             for check in self.group:
@@ -92,45 +98,55 @@ class DRN(object):
                     reconnection = {item1, item2}
                     _, _ = reconnection.remove(idx_l), reconnection.add(idx_s)
                     reconnection = sorted(reconnection)
-                    if not len(reconnection) == 2:  # self-connection
-                        to_delete_group.append((item1, item2))
-                    else:  # update the synaptic strength
+                    to_delete_group.append((item1, item2)) # self-connection considered
+                    if len(reconnection) == 2:
+                        # update the synaptic strength
                         item1, item2 = reconnection
                         subtraction = np.atleast_2d(self.w[item1] - self.w[item2])
                         center_of_mass_diff = (subtraction[:, :self.dim] + subtraction[:, self.dim:]) / 2
                         T = np.exp(-self.alpha * l2_norm(center_of_mass_diff))
-                        self.group[(item1, item2)] = T
+                        to_add_group.append([(item1, item2), T])
+                        # self.group[(item1, item2)] = T
 
             # delete the collected items from group and update w and n_category
+            for pair, strength in to_add_group:
+                self.group[pair] = strength
             for delete in to_delete_group:
                 del self.group[delete]
             self.w = np.delete(self.w, idx_l, axis=0)
             self.n_category -= 1
 
+            # print("Group After Connection: ")
+            # for item_indices in self.group:
+            #     print(item_indices)
+
             # update indices > idx_l
-            to_delete_group.clear()
-            to_add_group = []
+            _, _ = to_delete_group.clear(), to_add_group.clear()
+
             for check in self.group:
                 if any([c > idx_l for c in check]):
                     item1, item2 = check
                     residuals = [-1 if item > idx_l else 0 for item in check]
-                    item1, item2 = item1 - residuals[0], item2 - residuals[1]
+                    item1, item2 = item1 + residuals[0], item2 + residuals[1]
                     to_add_group.append([(item1, item2), self.group[check]])
                     # self.group[(item1, item2)] = self.group[check]
                     to_delete_group.append(check)
 
             for pair, strength in to_add_group:
                 self.group[pair] = strength
-
             for delete in to_delete_group:
                 del self.group[delete]
+
+            # print("Group After Final Process: ")
+            # for item_indices in self.group:
+            #    print(item_indices)
 
     def _condition_for_grouping(self):
         for idx_s, idx_l in self.group:
             resonance, w_ij_1, w_ij_2 = self._resonance_between_clusters(idx_s, idx_l)
             if resonance:
                 return resonance, idx_s, idx_l, w_ij_1, w_ij_2
-        return False, idx_s, idx_l, w_ij_1, w_ij_2
+        return False, 0, 0, 0, 0
         # idx_s, idx_l = max(self.group, key=lambda x: self.group[x])
         # return resonance, idx_s, idx_l, w_ij_1, w_ij_2
 
@@ -268,6 +284,11 @@ class DRN(object):
         return clustering_result
 
 
+class rDRN(DRN):
+    def train(self):
+        pass
+
+
 class DRNMAP(object):
     def __init__(self, lr=0.9, glr=1.0, alpha=1.0, rho=0.9, v=2):
         self.drn = DRN(lr, glr, alpha, rho, v)
@@ -307,7 +328,7 @@ if __name__ == '__main__':
                           [-10, 10],
                           [5, 8]])
     
-    drn = DRN(lr=1.0, rho=0.9)
+    drn = DRN(lr=1.0, rho=0.85)
 
     # data = data[:10]
     drn.train(data, shuffle=False)
@@ -321,6 +342,12 @@ if __name__ == '__main__':
     plt.figure(2)
     for i in range(drn.n_category):
         plt.plot(data[classes == i, 0], data[classes == i, 1], 'x')
+        plt.gca().add_patch(
+            plt.Rectangle((drn.w[i][0], drn.w[i][1]),
+                          drn.w[i][2] - drn.w[i][0],
+                          drn.w[i][3] - drn.w[i][1], fill=False,
+                          edgecolor='b', linewidth=1)
+        )
     # rect = patches.Rectangle((50, 100), 40, 30, linewidth=2, edgecolor='r', facecolor='none')
     plt.gca().add_patch(
         plt.Rectangle((drn.wg[0][0], drn.wg[0][1]),
@@ -339,19 +366,18 @@ if __name__ == '__main__':
     # drn.train(data)
     # print(drn.n_category)
 
-    '''
-    testART = DRN(rho=0.77)
+    testART = DRN(rho=0.85)
 
     # training the FusionART
     x, y = make_cluster_data()
     z = list(zip(x, y))
-    random.shuffle(z)
+    # random.shuffle(z)
     x, y = zip(*z)
 
     classification_result_during_training = []
     classification_result_after_training = []
     for i in range(len(x)):
-        _, tmp_class = testART.train(np.array([x[i], y[i]]))
+        _, tmp_class = testART.train(np.array([x[i], y[i]]), shuffle=False)
         classification_result_during_training.append(tmp_class)
 
     classified_x, classified_y = [[np.array([]) for _ in range(testART.n_category)] for _ in range(2)]
@@ -363,16 +389,21 @@ if __name__ == '__main__':
         classification_result_after_training.append(tmp_class)
 
     # print out the classification results
-    plt.figure(1)
+    plt.figure(3)
     plt.plot(x, y, 'x')
     plt.title('Original data')
     plt.axis([0, 1, 0, 1])
 
-    plt.figure(2)
+    plt.figure(4)
     for i in range(testART.n_category):
         plt.plot(classified_x[i], classified_y[i], 'x')
+        plt.gca().add_patch(
+            plt.Rectangle((testART.w[i][0], testART.w[i][1]),
+                          testART.w[i][2] - testART.w[i][0],
+                          testART.w[i][3] - testART.w[i][1], fill=False,
+                          edgecolor='b', linewidth=1)
+        )
     plt.title('Classification result')
     plt.axis([0, 1, 0, 1])
 
     plt.show()
-    '''
