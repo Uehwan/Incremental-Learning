@@ -58,7 +58,7 @@ class DRN(object):
         self.dim = sample.shape[0]
         self.n_category += 1
 
-    def _update_global_weight(self, sample):
+    def _update_global_weight(self, sample, grouping=True):
         if self._distance(sample, self.wg):
             self.wg = self._update_weight(sample, self.wg, self.glr)
             if len(self.group) > 0:
@@ -85,12 +85,6 @@ class DRN(object):
             self.w[idx_s] = np.hstack((w_ij_1, w_ij_2))
             to_delete_group, to_add_group = [], []
 
-            # print("#################################################")
-            # print("Grouping two clusters: ", idx_s, " and ", idx_l)
-            # print("Group Before Merging: ")
-            # for item_indices in self.group:
-            #    print(item_indices)
-
             # reconnect nodes previously connected to "idx_l" to "idx_s"
             for check in self.group:
                 if idx_l in check:
@@ -116,10 +110,6 @@ class DRN(object):
             self.w = np.delete(self.w, idx_l, axis=0)
             self.n_category -= 1
 
-            # print("Group After Connection: ")
-            # for item_indices in self.group:
-            #     print(item_indices)
-
             # update indices > idx_l
             _, _ = to_delete_group.clear(), to_add_group.clear()
 
@@ -137,27 +127,23 @@ class DRN(object):
             for delete in to_delete_group:
                 del self.group[delete]
 
-            # print("Group After Final Process: ")
-            # for item_indices in self.group:
-            #    print(item_indices)
-
     def _condition_for_grouping(self):
         for idx_s, idx_l in self.group:
             resonance, w_ij_1, w_ij_2 = self._resonance_between_clusters(idx_s, idx_l)
             if resonance:
                 return resonance, idx_s, idx_l, w_ij_1, w_ij_2
         return False, 0, 0, 0, 0
-        # idx_s, idx_l = max(self.group, key=lambda x: self.group[x])
-        # return resonance, idx_s, idx_l, w_ij_1, w_ij_2
 
     def _resonance_between_clusters(self, idx_s, idx_l):
         front, back = self.wg[:, :self.dim], self.wg[:, self.dim:]
-        M = np.prod(back - front)
+        # M = np.prod(back - front)
+        M = np.sum(np.abs(back - front))
         cluster1, cluster2 = np.atleast_2d(self.w[idx_s]), np.atleast_2d(self.w[idx_l])
         w_i_front, w_i_back = cluster1[:, :self.dim], cluster1[:, self.dim:]
         w_j_front, w_j_back = cluster2[:, :self.dim], cluster2[:, self.dim:]
         w_ij_front, w_ij_back = np.minimum(w_i_front, w_j_front), np.maximum(w_i_back, w_j_back)
-        S = np.prod(w_ij_back - w_ij_front)
+        # S = np.prod(w_ij_back - w_ij_front)
+        S = np.sum(np.abs(w_ij_back - w_ij_front))
         return (M - S) / M > self.rho, w_ij_front, w_ij_back
 
     def _distance(self, sample, weight):
@@ -254,13 +240,6 @@ class DRN(object):
                     # group the v-nodes
                     if self.n_category > 1:
                         self._add_group(v_node_selection, sample, resonance)
-                """
-                print("After training the following parameters have been modified...")
-                print("1. Weight Vector: ", self.w)
-                print("2. Global Vector: ", self.wg)
-                print("3. Number of Categories: ", self.n_category)
-                print("4. Groups: ", self.group)
-                """
         return self, classes
 
     def test(self, x, train=False):
@@ -285,8 +264,102 @@ class DRN(object):
 
 
 class rDRN(DRN):
-    def train(self):
-        pass
+    def __init__(self, lr=0.9, glr=1.0, alpha=1.0, rho=0.9, v=1, gp=0.5, iov=0.85):
+        DRN.__init__(self, lr=lr, glr=glr, alpha=alpha, rho=rho, v=v)
+        self.gp = gp    # probability for grouping
+        self.iov = iov  # intersection of volume (IoV) condition for grouping two clusters
+
+    def _grouping(self, idx):
+        # find which cluster to group with idx-th cluster
+        to_cluster, max_iov = None, 0
+        for cluster in range(self.n_category):
+            if cluster == idx:
+                continue
+            IoV = self._intersection_of_volume(cluster, idx)
+            if IoV > self.iov and IoV > max_iov:
+                to_cluster = cluster
+
+        if to_cluster:
+            self.n_category -= 1
+            self.w[cluster] = self._union_of_clusters(self.w[idx], self.w[to_cluster])
+            self.w = np.delete(self.w, to_cluster, axis=0)
+
+    def _volume_of_cluster(self, weight):
+        weight = np.atleast_2d(weight)
+        front, back = weight[:, :self.dim], weight[:, self.dim:]
+        return np.prod(back - front)
+
+    def _union_of_clusters(self, weight1, weight2):
+        weight1, weight2 = np.atleast_2d(weight1), np.atleast_2d(weight2)
+        front1, back1 = weight1[:, :self.dim], weight1[:, self.dim:]
+        front2, back2 = weight2[:, :self.dim], weight2[:, self.dim:]
+        u_front, u_back = np.minimum(front1, front2), np.maximum(back1, back2)
+        return np.hstack((u_front, u_back))
+
+    def _intersection_of_volume(self, idx1, idx2):
+        volume1, volume2 = self._volume_of_cluster(self.w[idx1]), self._volume_of_cluster(self.w[idx2])
+        union_weight = self._union_of_clusters(self.w[idx1], self.w[idx2])
+        union_volume = self._volume_of_cluster(union_weight)
+        return (volume1 + volume2) / union_volume
+
+    def train(self, x, epochs=1, shuffle=True, train=True):
+        """
+        Description
+            - Train rDRN model with the input vectors
+            - rDRN automatically clusters the input vectors
+
+        Parameters
+            - x: 2d array of size (samples, features), where all features can
+                 range [-inf, inf]
+            - epochs: the number of training loop
+            - permute: whether to shuffle the x's when training
+
+        Return
+            - self: rDRN class itself
+            - classes: the categories of each sample
+        """
+        # check if the input vectors (x) are of shape (samples, features)
+        x = np.atleast_2d(x)
+        assert len(x.shape) == 2, "Wrong input vector shape: input.shape = (samples, features)"
+
+        classes = []
+        # training for "epochs" times
+        for epoch in range(epochs):
+            # randomly shuffle data
+            if shuffle:
+                x = np.random.permutation(x)
+            for sample in x:
+                # init the cluster weights for the first input vector
+                if self.w is None and self.wg is None:
+                    self._init_weights(x[0])
+                    continue
+
+                # global vector update without grouping
+                self._update_global_weight(sample, False)
+
+                # node activation & template matching
+                activations = self._activation(sample)
+                v_node_selection = np.argsort(activations)[::-1][:self.v]
+                classes.append(v_node_selection[0])
+
+                if train:
+                    # check if resonance occurred
+                    resonance = self._template_matching(sample, v_node_selection)
+                    if resonance:
+                        # update weight for the cluster
+                        category = v_node_selection[0]
+                        self.w[category] = self._update_weight(sample, self.w[category], self.lr)
+                    else:
+                        # no matching occurred
+                        self._add_category(sample)
+
+                    # randomly incur cluster grouping
+                    if random.uniform(0, 1) < self.gp:
+                        if resonance:
+                            self._grouping(category)
+                        else:
+                            self._grouping(self.n_category - 1)
+        return self, classes
 
 
 class DRNMAP(object):
@@ -297,7 +370,6 @@ class DRNMAP(object):
 if __name__ == '__main__':
     import random
     import matplotlib.pyplot as plt
-    import matplotlib.patches as patches
 
 
     def make_cluster_data():
@@ -328,16 +400,16 @@ if __name__ == '__main__':
                           [-10, 10],
                           [5, 8]])
     
-    drn = DRN(lr=1.0, rho=0.85)
+    drn = rDRN(lr=0.9, rho=0.9)
 
     # data = data[:10]
-    drn.train(data, shuffle=False)
+    drn.train(data, shuffle=True)
 
     classes = np.array(drn.test(data))
 
-    plt.figure(1)
-    plt.plot(data[:, 0], data[:, 1], 'o')
-    plt.title('Original data')
+    # plt.figure(1)
+    # plt.plot(data[:, 0], data[:, 1], 'o')
+    # plt.title('Original data')
 
     plt.figure(2)
     for i in range(drn.n_category):
@@ -366,12 +438,12 @@ if __name__ == '__main__':
     # drn.train(data)
     # print(drn.n_category)
 
-    testART = DRN(rho=0.85)
+    testART = rDRN(lr=0.9, rho=0.9)
 
     # training the FusionART
     x, y = make_cluster_data()
     z = list(zip(x, y))
-    # random.shuffle(z)
+    random.shuffle(z)
     x, y = zip(*z)
 
     classification_result_during_training = []
@@ -389,10 +461,10 @@ if __name__ == '__main__':
         classification_result_after_training.append(tmp_class)
 
     # print out the classification results
-    plt.figure(3)
-    plt.plot(x, y, 'x')
-    plt.title('Original data')
-    plt.axis([0, 1, 0, 1])
+    # plt.figure(3)
+    # plt.plot(x, y, 'x')
+    # plt.title('Original data')
+    # plt.axis([0, 1, 0, 1])
 
     plt.figure(4)
     for i in range(testART.n_category):
