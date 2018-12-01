@@ -25,6 +25,7 @@
         > 18.11.16.: DRN implementation 1) group-related functions
         > 18.11.20.: DRN testing & debugging
         > 18.11.28.: DRN testing & debugging (compare against MATLAB DRN)
+        > 18.11.30.: rDRN implementation & DRN distance function modified
     - TO DO's
         > Extend Fuzzy DRN => Fusion DRN 
 """
@@ -275,9 +276,12 @@ class rDRN(DRN):
         for cluster in range(self.n_category):
             if cluster == idx:
                 continue
-            IoV = self._intersection_of_volume(cluster, idx)
-            if IoV > self.iov and IoV > max_iov:
-                to_cluster = cluster
+            IoV, UoV = self._intersection_of_volume(cluster, idx)
+            if UoV < self.dim * (1 - self.rho):
+                distance = self._distance_between_clusters(self.w[cluster], self.w[idx])
+                if IoV > self.iov and IoV > max_iov or distance < 0.05 and IoV > self.iov / 2:
+                    to_cluster = cluster
+                    max_iov = IoV
 
         if to_cluster:
             self.n_category -= 1
@@ -300,7 +304,14 @@ class rDRN(DRN):
         volume1, volume2 = self._volume_of_cluster(self.w[idx1]), self._volume_of_cluster(self.w[idx2])
         union_weight = self._union_of_clusters(self.w[idx1], self.w[idx2])
         union_volume = self._volume_of_cluster(union_weight)
-        return (volume1 + volume2) / union_volume
+        return (volume1 + volume2) / union_volume, union_volume
+
+    def _distance_between_clusters(self, weight1, weight2):
+        weight1, weight2 = np.atleast_2d(weight1), np.atleast_2d(weight2)
+        front1, back1 = weight1[:, :self.dim], weight1[:, self.dim:]
+        distance1 = np.abs(weight1 - weight2)
+        distance2 = np.abs(np.hstack((back1, front1)) - weight2)
+        return np.minimum(distance1, distance2).min()
 
     def train(self, x, epochs=1, shuffle=True, train=True):
         """
@@ -400,7 +411,7 @@ if __name__ == '__main__':
                           [-10, 10],
                           [5, 8]])
     
-    drn = rDRN(lr=0.9, rho=0.9)
+    drn = rDRN(lr=0.7, rho=0.9)
 
     # data = data[:10]
     drn.train(data, shuffle=True)
