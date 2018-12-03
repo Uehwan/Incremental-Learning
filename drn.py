@@ -26,8 +26,9 @@
         > 18.11.20.: DRN testing & debugging
         > 18.11.28.: DRN testing & debugging (compare against MATLAB DRN)
         > 18.11.30.: rDRN implementation & DRN distance function modified
+        > 18.12.01.: rDRN Grouping scheme implemented
     - TO DO's
-        > Extend Fuzzy DRN => Fusion DRN 
+        > Stabilizing Grouping Scheme
 """
 
 import numpy as np
@@ -276,7 +277,7 @@ class rDRN(DRN):
         for cluster in range(self.n_category):
             if cluster == idx:
                 continue
-            IoV, UoV = self._intersection_of_volume(cluster, idx)
+            IoV, UoV = self._intersection_of_volume(self.w[cluster], self.w[idx])
             if UoV < self.dim * (1 - self.rho):
                 distance = self._distance_between_clusters(self.w[cluster], self.w[idx])
                 if IoV > self.iov and IoV > max_iov or distance < 0.05 and IoV > self.iov / 2:
@@ -300,9 +301,9 @@ class rDRN(DRN):
         u_front, u_back = np.minimum(front1, front2), np.maximum(back1, back2)
         return np.hstack((u_front, u_back))
 
-    def _intersection_of_volume(self, idx1, idx2):
-        volume1, volume2 = self._volume_of_cluster(self.w[idx1]), self._volume_of_cluster(self.w[idx2])
-        union_weight = self._union_of_clusters(self.w[idx1], self.w[idx2])
+    def _intersection_of_volume(self, weight1, weight2):
+        volume1, volume2 = self._volume_of_cluster(weight1), self._volume_of_cluster(weight2)
+        union_weight = self._union_of_clusters(weight1, weight2)
         union_volume = self._volume_of_cluster(union_weight)
         return (volume1 + volume2) / union_volume, union_volume
 
@@ -312,6 +313,16 @@ class rDRN(DRN):
         distance1 = np.abs(weight1 - weight2)
         distance2 = np.abs(np.hstack((back1, front1)) - weight2)
         return np.minimum(distance1, distance2).min()
+
+    def _distance_between_point_and_cluster(self, weight, point):
+        pass
+
+    def _learning_condition(self, sample, idx):
+        weight = self.w[idx]
+        extended_cluster = self._update_weight(sample, weight, 1.0)
+        IoV, _ = self._intersection_of_volume(weight, extended_cluster)
+        print(IoV)
+        return IoV > self.iov, max(IoV / self.iov, self.lr)
 
     def train(self, x, epochs=1, shuffle=True, train=True):
         """
@@ -356,10 +367,11 @@ class rDRN(DRN):
                 if train:
                     # check if resonance occurred
                     resonance = self._template_matching(sample, v_node_selection)
-                    if resonance:
+                    condition, adaptive_lr = self._learning_condition(sample, v_node_selection[0])
+                    if resonance and condition:
                         # update weight for the cluster
                         category = v_node_selection[0]
-                        self.w[category] = self._update_weight(sample, self.w[category], self.lr)
+                        self.w[category] = self._update_weight(sample, self.w[category], adaptive_lr)
                     else:
                         # no matching occurred
                         self._add_category(sample)
@@ -411,7 +423,7 @@ if __name__ == '__main__':
                           [-10, 10],
                           [5, 8]])
     
-    drn = rDRN(lr=0.7, rho=0.9)
+    drn = rDRN(lr=0.8, rho=0.7)
 
     # data = data[:10]
     drn.train(data, shuffle=True)
