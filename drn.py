@@ -281,8 +281,7 @@ class rDRN(DRN):
             if UoV < self.dim * (1 - self.rho):
                 distance = self._distance_between_clusters(self.w[cluster], self.w[idx])
                 if IoV > self.iov and IoV > max_iov or distance < 0.05 and IoV > self.iov / 2:
-                    to_cluster = cluster
-                    max_iov = IoV
+                    to_cluster, max_iov = cluster, IoV
 
         if to_cluster:
             self.n_category -= 1
@@ -321,8 +320,7 @@ class rDRN(DRN):
         weight = self.w[idx]
         extended_cluster = self._update_weight(sample, weight, 1.0)
         IoV, _ = self._intersection_of_volume(weight, extended_cluster)
-        print(IoV)
-        return IoV > self.iov, max(IoV / self.iov, self.lr)
+        return IoV > 1, min(1/((IoV - 0.99) * 10), self.lr)
 
     def train(self, x, epochs=1, shuffle=True, train=True):
         """
@@ -406,10 +404,29 @@ if __name__ == '__main__':
             y = np.append(y, y_temp)
         return x, y
 
+    dim = 2
+
+    def volume_of_cluster(weight):
+        weight = np.atleast_2d(weight)
+        front, back = weight[:, :dim], weight[:, dim:]
+        return np.prod(back - front)
+
+    def union_of_clusters(weight1, weight2):
+        weight1, weight2 = np.atleast_2d(weight1), np.atleast_2d(weight2)
+        front1, back1 = weight1[:, :dim], weight1[:, dim:]
+        front2, back2 = weight2[:, :dim], weight2[:, dim:]
+        u_front, u_back = np.minimum(front1, front2), np.maximum(back1, back2)
+        return np.hstack((u_front, u_back))
+
+    def intersection_of_volume(weight1, weight2):
+        volume1, volume2 = volume_of_cluster(weight1), volume_of_cluster(weight2)
+        union_weight = union_of_clusters(weight1, weight2)
+        union_volume = volume_of_cluster(union_weight)
+        return (volume1 + volume2) / union_volume, union_volume
+
     random.seed(43)
     print("TEST of DRN")
     data = io.loadmat('data.mat')['points']
-
     data_test = np.array([[4, 4],
                           [-2, -2],
                           [-5, 5],
@@ -451,6 +468,7 @@ if __name__ == '__main__':
                       edgecolor='r', linewidth=3)
     )
     plt.title('Classification result')
+    # plt.axis([-15, 15, -15, 15])
 
     plt.show()
 
