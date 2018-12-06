@@ -102,13 +102,9 @@ class DRN(object):
                         center_of_mass_diff = (subtraction[:, :self.dim] + subtraction[:, self.dim:]) / 2
                         T = np.exp(-self.alpha * l2_norm(center_of_mass_diff))
                         to_add_group.append([(item1, item2), T])
-                        # self.group[(item1, item2)] = T
 
             # delete the collected items from group and update w and n_category
-            for pair, strength in to_add_group:
-                self.group[pair] = strength
-            for delete in to_delete_group:
-                del self.group[delete]
+            self._update_groups(to_add_group, to_delete_group)
             self.w = np.delete(self.w, idx_l, axis=0)
             self.n_category -= 1
 
@@ -124,13 +120,17 @@ class DRN(object):
                     # self.group[(item1, item2)] = self.group[check]
                     to_delete_group.append(check)
 
-            for pair, strength in to_add_group:
-                self.group[pair] = strength
-            for delete in to_delete_group:
-                del self.group[delete]
+            self._update_groups(to_add_group, to_delete_group)
+
+    def _update_groups(self, to_add, to_delete):
+        for pair, strength in to_add:
+            self.group[pair] = strength
+        for delete in to_delete:
+            del self.group[delete]
 
     def _condition_for_grouping(self):
-        for idx_s, idx_l in self.group:
+        shuffled_keys = random.shuffle(list(self.group.keys()))
+        for idx_s, idx_l in shuffled_keys:  # self.group:
             resonance, w_ij_1, w_ij_2 = self._resonance_between_clusters(idx_s, idx_l)
             if resonance:
                 return resonance, idx_s, idx_l, w_ij_1, w_ij_2
@@ -138,13 +138,11 @@ class DRN(object):
 
     def _resonance_between_clusters(self, idx_s, idx_l):
         front, back = self.wg[:, :self.dim], self.wg[:, self.dim:]
-        # M = np.prod(back - front)
         M = np.sum(np.abs(back - front))
         cluster1, cluster2 = np.atleast_2d(self.w[idx_s]), np.atleast_2d(self.w[idx_l])
         w_i_front, w_i_back = cluster1[:, :self.dim], cluster1[:, self.dim:]
         w_j_front, w_j_back = cluster2[:, :self.dim], cluster2[:, self.dim:]
         w_ij_front, w_ij_back = np.minimum(w_i_front, w_j_front), np.maximum(w_i_back, w_j_back)
-        # S = np.prod(w_ij_back - w_ij_front)
         S = np.sum(np.abs(w_ij_back - w_ij_front))
         return (M - S) / M > self.rho, w_ij_front, w_ij_back
 
@@ -160,9 +158,9 @@ class DRN(object):
 
     def _template_matching(self, sample, v_nodes):
         front, back, _, _ = self._split_weight(sample, self.wg)
-        M = np.prod(back - front)
+        M = np.sum(np.abs(back - front))
         _, _, w1, w2 = self._split_weight(sample, self.w[v_nodes[0]])
-        S = np.prod(w2 - w1)
+        S = np.sum(np.abs(w2 - w1))
         return (M - S) / M > self.rho
 
     def _add_category(self, sample):
@@ -211,8 +209,9 @@ class DRN(object):
         classes = []
         # training for "epochs" times
         for epoch in range(epochs):
-            # randomly shuffle data
+
             if shuffle:
+                # randomly shuffle data
                 x = np.random.permutation(x)
             for sample in x:
                 # init the cluster weights for the first input vector
@@ -239,7 +238,7 @@ class DRN(object):
                         # no matching occurred
                         self._add_category(sample)
 
-                    # group the v-nodes
+                    # connect the v-nodes
                     if self.n_category > 1:
                         self._add_group(v_node_selection, sample, resonance)
         return self, classes
@@ -266,10 +265,11 @@ class DRN(object):
 
 
 class rDRN(DRN):
-    def __init__(self, lr=0.9, glr=1.0, alpha=1.0, rho=0.9, v=1, gp=0.5, iov=0.85):
+    def __init__(self, lr=0.9, glr=1.0, alpha=1.0, rho=0.9, v=1, gp=0.75, iov=0.85, dist=0.2):
         DRN.__init__(self, lr=lr, glr=glr, alpha=alpha, rho=rho, v=v)
-        self.gp = gp    # probability for grouping
-        self.iov = iov  # intersection of volume (IoV) condition for grouping two clusters
+        self.gp = gp      # probability for grouping
+        self.iov = iov    # intersection of volume (IoV) condition for grouping two clusters
+        self.dist = dist  # distance parameter
 
     def _grouping(self, idx):
         # find which cluster to group with idx-th cluster
@@ -278,9 +278,10 @@ class rDRN(DRN):
             if cluster == idx:
                 continue
             IoV, UoV = self._intersection_of_volume(self.w[cluster], self.w[idx])
-            if UoV < self.dim * (1 - self.rho):
+            if UoV < self.dim * (1 - self.rho) * self._volume_of_cluster(self.wg):
                 distance = self._distance_between_clusters(self.w[cluster], self.w[idx])
-                if IoV > self.iov and IoV > max_iov or distance < 0.05 and IoV > self.iov / 2:
+                dist_glob = l2_norm(self.wg[:, self.dim:] - self.wg[:, :self.dim])
+                if IoV > self.iov and IoV > max_iov or distance < self.dist * dist_glob and IoV > self.iov / 2:
                     to_cluster, max_iov = cluster, IoV
 
         if to_cluster:
@@ -309,18 +310,32 @@ class rDRN(DRN):
     def _distance_between_clusters(self, weight1, weight2):
         weight1, weight2 = np.atleast_2d(weight1), np.atleast_2d(weight2)
         front1, back1 = weight1[:, :self.dim], weight1[:, self.dim:]
-        distance1 = np.abs(weight1 - weight2)
-        distance2 = np.abs(np.hstack((back1, front1)) - weight2)
-        return np.minimum(distance1, distance2).min()
+        front2, back2 = weight2[:, :self.dim], weight2[:, self.dim:]
+        size1, size2 = l2_norm(back1 - front1) / 2, l2_norm(back2 - front2) / 2
+        dist_from_center = l2_norm((front1 + back1) / 2 - (front2 + back2) / 2)
+        distance = max(dist_from_center - size1 - size2, 0)
+        return distance
 
-    def _distance_between_point_and_cluster(self, weight, point):
-        pass
+        # distance1 = np.abs(weight1 - weight2)
+        # distance2 = np.abs(np.hstack((back1, front1)) - weight2)
+        # return np.minimum(distance1, distance2).min()
+
+    def _distance_between_cluster_and_point(self, weight, sample):
+        weight = np.atleast_2d(weight)
+        front, back = weight[:, :self.dim], weight[:, self.dim:]
+        size = l2_norm(back - front) / 2
+        distance_from_center = l2_norm(sample - (front + back) / 2)
+        distance = max(distance_from_center - size, 0)
+        return distance
 
     def _learning_condition(self, sample, idx):
         weight = self.w[idx]
-        extended_cluster = self._update_weight(sample, weight, 1.0)
-        IoV, _ = self._intersection_of_volume(weight, extended_cluster)
-        return IoV > 1, min(1/((IoV - 0.99) * 10), self.lr)
+        volume_orig = self._volume_of_cluster(weight)
+        adaptive_lr = 2 * volume_orig / (self.dim * (1 - self.rho) * self._volume_of_cluster(self.wg))
+        adaptive_lr = min(adaptive_lr, self.lr)
+        dist_glob = l2_norm(self.wg[:, self.dim:] - self.wg[:, :self.dim])
+        condition = self._distance_between_cluster_and_point(weight, sample) < self.dist * dist_glob
+        return condition, adaptive_lr
 
     def train(self, x, epochs=1, shuffle=True, train=True):
         """
@@ -376,7 +391,7 @@ class rDRN(DRN):
 
                     # randomly incur cluster grouping
                     if random.uniform(0, 1) < self.gp:
-                        if resonance:
+                        if resonance and condition:
                             self._grouping(category)
                         else:
                             self._grouping(self.n_category - 1)
@@ -404,26 +419,6 @@ if __name__ == '__main__':
             y = np.append(y, y_temp)
         return x, y
 
-    dim = 2
-
-    def volume_of_cluster(weight):
-        weight = np.atleast_2d(weight)
-        front, back = weight[:, :dim], weight[:, dim:]
-        return np.prod(back - front)
-
-    def union_of_clusters(weight1, weight2):
-        weight1, weight2 = np.atleast_2d(weight1), np.atleast_2d(weight2)
-        front1, back1 = weight1[:, :dim], weight1[:, dim:]
-        front2, back2 = weight2[:, :dim], weight2[:, dim:]
-        u_front, u_back = np.minimum(front1, front2), np.maximum(back1, back2)
-        return np.hstack((u_front, u_back))
-
-    def intersection_of_volume(weight1, weight2):
-        volume1, volume2 = volume_of_cluster(weight1), volume_of_cluster(weight2)
-        union_weight = union_of_clusters(weight1, weight2)
-        union_volume = volume_of_cluster(union_weight)
-        return (volume1 + volume2) / union_volume, union_volume
-
     random.seed(43)
     print("TEST of DRN")
     data = io.loadmat('data.mat')['points']
@@ -440,7 +435,7 @@ if __name__ == '__main__':
                           [-10, 10],
                           [5, 8]])
     
-    drn = rDRN(lr=0.8, rho=0.7)
+    drn = rDRN(lr=0.8, rho=0.75)
 
     # data = data[:10]
     drn.train(data, shuffle=True)
@@ -457,8 +452,8 @@ if __name__ == '__main__':
         plt.gca().add_patch(
             plt.Rectangle((drn.w[i][0], drn.w[i][1]),
                           drn.w[i][2] - drn.w[i][0],
-                          drn.w[i][3] - drn.w[i][1], fill=False,
-                          edgecolor='b', linewidth=1)
+                          drn.w[i][3] - drn.w[i][1], fill=True,
+                          edgecolor='r', linewidth=1)
         )
     # rect = patches.Rectangle((50, 100), 40, 30, linewidth=2, edgecolor='r', facecolor='none')
     plt.gca().add_patch(
@@ -479,7 +474,7 @@ if __name__ == '__main__':
     # drn.train(data)
     # print(drn.n_category)
 
-    testART = rDRN(lr=0.9, rho=0.9)
+    testART = rDRN(lr=0.9, rho=0.8)
 
     # training the FusionART
     x, y = make_cluster_data()
@@ -513,9 +508,15 @@ if __name__ == '__main__':
         plt.gca().add_patch(
             plt.Rectangle((testART.w[i][0], testART.w[i][1]),
                           testART.w[i][2] - testART.w[i][0],
-                          testART.w[i][3] - testART.w[i][1], fill=False,
-                          edgecolor='b', linewidth=1)
+                          testART.w[i][3] - testART.w[i][1], fill=True,
+                          edgecolor='r', linewidth=1)
         )
+    plt.gca().add_patch(
+        plt.Rectangle((testART.wg[0][0], testART.wg[0][1]),
+                      testART.wg[0][2] - testART.wg[0][0],
+                      testART.wg[0][3] - testART.wg[0][1], fill=False,
+                      edgecolor='r', linewidth=3)
+    )
     plt.title('Classification result')
     plt.axis([0, 1, 0, 1])
 
