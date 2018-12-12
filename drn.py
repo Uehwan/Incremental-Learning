@@ -16,12 +16,11 @@
           Neural Networks, Dec. 2018, Submitted.
         > Implementation of DRNMAP algorithm and performance analysis
         > DRNMAP employs rDRN rather than the original DRN
-        > rDRN stands for reduced-DRN, which employs simplified grouping
+        > rDRN stands for reduced-DRN, which uses improved grouping
 """
 
 import numpy as np
 from functools import partial
-import scipy.io as io
 
 l2_norm = partial(np.linalg.norm, ord=2, axis=-1)
 
@@ -380,9 +379,10 @@ class rDRN(DRN):
 
 
 class DRNMAP(rDRN):
-    def __init__(self, lr=0.9, glr=1.0, alpha=1.0, rho=0.9, v=1, gp=0.75, iov=0.85, dist=0.2):
+    def __init__(self, lr=0.9, glr=1.0, epsilon=0.001, alpha=1.0, rho=0.9, v=1, gp=0.75, iov=0.85, dist=0.2):
         rDRN.__init__(self, lr=lr, glr=glr, alpha=alpha, rho=rho, v=v, gp=gp, iov=iov, dist=dist)
         self.map = []
+        self.epsilon = epsilon
 
     def _init_weights(self, sample, label):
         super(DRNMAP, self)._init_weights(sample)
@@ -414,12 +414,42 @@ class DRNMAP(rDRN):
             del self.map[to_cluster]
 
     def _grouping_condition(self, idx, to_cluster):
-        return True
+        if self.map[idx] == self.map[to_cluster]:
+            return True
+        else:
+            # need to check neighboring clusters
+            return False
 
-    def _match_tracking(self, sample, label):
-        pass
+    def _template_matching_for_all(self, sample):
+        front, back, _, _ = self._split_weight(self.wg, sample)
+        M = np.sum(np.abs(back - front))
+        resonance_values = []
+        for i in range(self.n_category):
+            _, _, w1, w2 = self._split_weight(self.w[v_nodes[0]], sample)
+            S = np.sum(np.abs(w2 - w1))
+            resonance_values.append((M - S) / M)
+        return np.array(resonance_values)
 
-    def train(self, x, y=None, epochs=1, shuffle=True, train=True):
+    def _match_category(self, sample, label=None):
+        _rho = self.rho
+        # check activation values
+        scores = self._activation(sample)
+        # check resonance values
+        norms = self._template_matching_for_all(sample)
+
+        threshold = norms >= _rho
+        while not np.all(threshold == False):
+            y_ = np.argmax(scores * threshold.astype(int))
+
+            if label is None or self.map[y_] == label:
+                return map[y_]
+            else:
+                _rho = norms[y_] + self.epsilon
+                norms[y_] = 0
+                threshold = norms >= _rho
+        return -1
+
+    def train(self, x, y, epochs=1, shuffle=True):
         """
         Description
             - Train rDRN model with the input vectors
@@ -445,6 +475,7 @@ class DRNMAP(rDRN):
             # randomly shuffle data
             if shuffle:
                 x, y = zip(*np.random.permutation(zip(x, y)))
+
             for sample, label in zip(x, y):
                 # init the cluster weights for the first input vector
                 if self.w is None and self.wg is None:
@@ -452,37 +483,61 @@ class DRNMAP(rDRN):
                     continue
 
                 # global vector update without grouping
-                self._update_global_weight(sample, True)
+                self._update_global_weight(sample, False)
 
                 # match tracking
-                activations = self._activation(sample)
-                v_node_selection = np.argsort(activations)[::-1][:self.v]
-                classes.append(v_node_selection[0])
+                classification = self._match_tracking(sample, label)
+                classes.append(classification)
 
-                if train:
+                # check if matched successfully
+                if classification == -1:
+                    # no matching occurred
+                    self._add_category(sample, label)
+                else:
                     # check if resonance occurred
-                    resonance = self._template_matching(sample, v_node_selection)
-                    condition, adaptive_lr = self._learning_condition(sample, v_node_selection[0])
+                    resonance = self._template_matching(sample, [classification])
+                    condition, adaptive_lr = self._learning_condition(sample, classification)
                     if resonance and condition:
                         # update weight for the cluster
-                        category = v_node_selection[0]
-                        self.w[category] = self._update_weight(sample, self.w[category], adaptive_lr)
+                        self.w[classification] = self._update_weight(sample, self.w[classification], adaptive_lr)
                     else:
-                        # no matching occurred
                         self._add_category(sample, label)
 
-                    # randomly incur cluster grouping
-                    if random.uniform(0, 1) < self.gp:
-                        if resonance and condition:
-                            self._grouping(category)
-                        else:
-                            self._grouping(self.n_category - 1)
+                # randomly incur cluster grouping
+                if random.uniform(0, 1) < self.gp:
+                    if resonance and condition:
+                        self._grouping(classification)
+                    else:
+                        self._grouping(self.n_category - 1)
         return classes
+
+    def test(self, x):
+        """
+        Description
+            - Test the trained DRN model with the input vectors
+            - DRN predicts the clusters of the input vectors
+
+        Parameters
+            - x: 2d array of size (samples, features), where all features can
+                 range [-inf, inf]
+
+        Return
+            - labels: DRN class itself
+        """
+        x = np.atleast_2d(x)
+        assert len(x.shape) == 2, "Wrong input vector shape: input.shape = (samples, features)"
+
+        labels = np.zeros(len(x))
+        for i, sample in enumerate(x):
+            category = self._match_category(sample)
+            labels[i] = self.map[category]
+        return labels
 
 
 if __name__ == '__main__':
     import random
     import matplotlib.pyplot as plt
+    import scipy.io as io
 
 
     def make_cluster_data():
