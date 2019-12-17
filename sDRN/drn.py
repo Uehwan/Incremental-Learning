@@ -1,9 +1,7 @@
-import numpy as np
 import random
-import matplotlib.pyplot as plt
-import scipy.io as io
-import warnings
-from ..SFART.utils import l2_norm
+import numpy as np
+
+from SFART.utils import l2_norm
 
 
 class DRN(object):
@@ -20,14 +18,15 @@ class DRN(object):
         self.n_category = 0  # number of categories
         self.group = {}  # group container
 
-        self.num_channel = num_channel
-        self.input_dim = input_dim
-        self.tmp_mat_elem = tmp_mat_elem
+        self.num_channel = num_channel # number of channels in input
+        self.input_dim = input_dim # dimension of each channel in input
+        self.tmp_mat_elem = tmp_mat_elem # Flag to decide proceeding template matching element-wise or not
         assert num_channel == len(input_dim), "num_channel should be array length of input_dim"
 
     @staticmethod
     def extract_append(array, vector, ch):
         """
+        Extract indexed channel elements of array[vector]
         """
         temp = []
         for i in range(len(vector)):
@@ -35,11 +34,33 @@ class DRN(object):
         return np.array(temp)
 
     def _distance(self, sample_ch, weight_ch):
+        """
+        sample_ch: channel element of sample.
+        weight_ch: channel element of weight
+        return: the distance between sample_ch and weight_ch
+
+        For example, if sample and weight has multiple channels, this function can be called as
+        _distance(sample[0], weight[0]), where sample[0] and weight[0] regards first channel
+        element of sample and weight.
+        """
         f, b, w1, w2 = self._split_weight_ch(weight_ch, sample_ch)
         distance = l2_norm(w1 - f + w2 - b)
         return distance
 
     def _split_weight_ch(self, weight_ch, sample_ch=None):
+        """
+        weight_ch: channel element of weight
+        sample_ch: channel element of sample
+        if sample_ch given,
+            split weight_ch to front half and back half
+            calculate minimum of front/back and sample_ch
+            return front, back, two minimums
+        else,
+            split weight_ch to front half and back half
+            return front, back
+        For example, if weight_ch = [4 1 1 1 5 3 3 2] and sample_ch = [2 5 3 4]
+        front = [4 1 1 1], back = [5 3 3 2], w1 = [2 1 1 1], w2 = [5 5 3 4]
+        """
         # weight_ch and sample_ch should be 1D.
         if sample_ch is None:
             front, back = weight_ch[:self.dim], weight_ch[self.dim:]
@@ -50,6 +71,9 @@ class DRN(object):
             return np.array(front), np.array(back), np.array(w1), np.array(w2)
 
     def _split_weight_nch(self, weight, sample=None):
+        """
+        Proceed _split_weight_ch for each channel of sample and weight given
+        """
         # Weight is 2D, [ch][feature]
         # Sample is 1D, [feature] (within [ch])
         if sample is None:
@@ -64,6 +88,9 @@ class DRN(object):
             return np.array(front_list), np.array(back_list), np.array(w1_list), np.array(w2_list)
 
     def _init_weights(self, sample):
+        """
+        Initiailize weights of the new cluster with sample given.
+        """
         # Weight related functions
         self.w = np.atleast_2d([np.hstack((sample, sample))])
         self.wg = np.atleast_2d(np.hstack((sample, sample)))
@@ -71,6 +98,9 @@ class DRN(object):
         self.n_category += 1
 
     def _drn_activation(self, sample):
+        """
+        Calculate the resonance of the sample to each weights in DRN algorithm manner
+        """
         # New node resonance related functions
         activation = []
         for category in range(self.n_category):
@@ -80,6 +110,9 @@ class DRN(object):
         return np.array(activation)
 
     def _rdrn_activation(self, sample):
+        """
+        Calculate the resonance of the sample to each weights in sDRN algorithm manner
+        """
         activation = []
         for category in range(self.n_category):
             dist_glob = np.array([l2_norm(np.subtract(self.wg[ch][self.dim:], self.wg[ch][:self.dim])) for ch in
@@ -91,6 +124,11 @@ class DRN(object):
         return np.array(activation)
 
     def _template_matching(self, sample, category):
+        """
+        After the activation, we choose node (cluster) with highest activation.
+        For the highest activation node, we proceed template matching to decide whether
+        add sample to the node or classify as a new cluster.
+        """
         match_val = []
         for ch in range(self.num_channel):
             front, back, _, _ = self._split_weight_ch(self.wg[ch], sample[ch])
@@ -107,6 +145,9 @@ class DRN(object):
         return np.array(match_val)
 
     def _check_cluster_size_vig(self, cluster):
+        """
+        Check whether the new cluster follows template matching condition
+        """
         temp_node = np.array([cluster[ch][:self.dim] for ch in range(self.num_channel)])
         match_val = []
         for ch in range(self.num_channel):
@@ -124,17 +165,27 @@ class DRN(object):
         return np.array(match_val)
 
     def _add_category(self, sample):
+        """
+        Create category when template matching phase decides to create new cluster with sample.
+
+        """
         self.n_category += 1
         new_weight = np.hstack((sample, sample))
         self.w = np.vstack((self.w, np.array([new_weight])))
 
     def _update_global_weight(self, sample, grouping=True):
+        """
+        Update global weights with respect to new sample
+        """
         for ch in range(self.num_channel):
             self.wg = self._update_weight(sample, self.wg, self.glr)
         if len(self.group) > 0 and grouping:
             self._grouping()
 
     def _update_weight(self, sample, weight, lr):
+        """
+        Update weight of cluster when new sample is added, with respect to new sample and lr.
+        """
         # Mind the dimension
         # It is [input_dim], both sample and weight.
         w1_list = []
@@ -154,6 +205,10 @@ class DRN(object):
         return np.array(updated_weight)
 
     def _grouping(self):
+        """
+        Proceed grouping phase to group clusters which need to be united.
+
+        """
         while True:
             resonance, idx_s, idx_l, w_ij_1_list, w_ij_2_list = self._condition_for_grouping()
             if not resonance:
@@ -206,6 +261,9 @@ class DRN(object):
             del self.group[delete]
 
     def _condition_for_grouping(self):
+        """
+        Conditions for grouping
+        """
         shuffled_keys = random.sample(list(self.group.keys()), len(list(self.group.keys())))
         for idx_s, idx_l in shuffled_keys:  # self.group:
             resonance, w_ij_1_list, w_ij_2_list = self._resonance_between_clusters(idx_s, idx_l)
@@ -214,6 +272,9 @@ class DRN(object):
         return False, 0, 0, 0, 0
 
     def _resonance_between_clusters(self, idx_s, idx_l):
+        """
+        Check the resonance between clusters with given index idx_s and idx_l
+        """
         front = np.array([self.wg[ch][:self.dim] for ch in range(self.num_channel)])
         back = np.array([self.wg[ch][self.dim:] for ch in range(self.num_channel)])
         M = np.sum(np.abs(np.subtract(back, front)), axis=1)
@@ -229,8 +290,11 @@ class DRN(object):
         return all(resonance_list), np.array(w_ij_front_list), np.array(w_ij_back_list)
 
     def _add_group(self, v_nodes, sample, condition):
+        """
+        Proceed necessary calculations for grouping
+        """
         # See the paper. front/back/center_of_mass should be vector
-        # Mixed and calculate from vector to T in the T = np.exp ~~~ thing. (Make ch loop there or vectorization.)
+        # Mixed and calculate from vector to T in the T = np.exp ~~~ thing.
         center_of_mass_list = []
         if all(condition):
             to_connect = np.copy(v_nodes)
@@ -265,8 +329,15 @@ class DRN(object):
                     self.group[(smaller, larger)] = T
 
     def train(self, x, epochs=1, shuffle=False, train=True):
+        """
+        x: Input in [#samples][channel][input_dimension] format.
+        epochs: #Epochs to iterate
+        shuffle: Flag for shuffling.
+        train: Flag showing whether it is train phase or test phase.
+        """
         classes = []
 
+        # Shuffle the given data
         if shuffle:
             x = np.random.permutation(x)
 

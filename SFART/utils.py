@@ -1,9 +1,25 @@
 import numpy as np
 from functools import partial
-
+from sklearn import metrics
 
 l2_norm = partial(np.linalg.norm, ord=2, axis=-1)
 
+def purity_score(y_true, y_pred):
+    # compute contingency matrix (also called confusion matrix)
+    contingency_matrix = metrics.cluster.contingency_matrix(y_true, y_pred)
+    # return purity
+    return np.sum(np.amax(contingency_matrix, axis=0)) / np.sum(contingency_matrix)
+
+def check_not_single_category(list):
+    if len(list) == 0:
+        print("list empty")
+        return False
+    else:
+        check = list[0]
+        for i in range(len(list)):
+            if check != list[i]:
+                return True
+        return False
 
 def fuzz_min_sum(x, y):
     """ Calculate fuzzy_min and sum over vectors

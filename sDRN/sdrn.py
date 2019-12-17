@@ -1,8 +1,8 @@
-import numpy as np
-from drn import DRN
 import random
-import warnings
-from ..SFART.utils import l2_norm
+import numpy as np
+
+from SFART.utils import l2_norm
+from drn import DRN
 
 
 class sDRN(DRN):
@@ -12,7 +12,11 @@ class sDRN(DRN):
         self.iov = iov  # intersection of volume (IoV) condition for grouping two clusters
         self.dist = dist  # distance parameter
 
-    def _grouping(self, idx):
+    def _grouping(self, idx)
+        """
+        Proceed grouping phase to group clusters which need to be united.
+        Conditions for grouping is calculated, and finally proceed grouping or not.
+        """
         # find which cluster to group with idx-th cluster
         to_cluster, max_iov = None, 0
         for cluster in range(self.n_category):
@@ -41,16 +45,28 @@ class sDRN(DRN):
             self.w = np.delete(self.w, to_cluster, axis=0)
 
     def _volume_of_cluster(self, weight):
+        """
+        Caculate the volume of the cluster.
+        For each channel of input, we caculate the distance between front half and back half.
+        Then, return calculate all the distances
+        """
         front, back = self._split_weight_nch(weight)
         return np.prod(np.subtract(back, front), axis=1)
 
     def _union_of_clusters(self, w_i, w_j):
+        """
+        Return the unioned area of given inputs w_i and w_j.
+        """
         front_i, back_i = self._split_weight_nch(w_i)
         front_j, back_j = self._split_weight_nch(w_j)
         u_front, u_back = np.minimum(front_i, front_j), np.maximum(back_i, back_j)
         return np.hstack((u_front, u_back))
 
     def _intersection_of_volume(self, w_i, w_j):
+        """
+        Calculate the intersection ratio of clusters w_i and w_j.
+        Return the ratio of sum of each clusters volume to unioned volume.
+        """
         w_i = w_i
         w_j = w_j
         volume1, volume2 = self._volume_of_cluster(w_i), self._volume_of_cluster(w_j)
@@ -59,6 +75,9 @@ class sDRN(DRN):
         return np.divide(np.add(volume1, volume2), union_volume), np.array(union_volume)
 
     def _distance_between_clusters(self, w_i, w_j):
+        """
+        Calculate the distance between given clusters w_i and w_j.
+        """
         front_i, back_i = self._split_weight_nch(w_i)
         front_j, back_j = self._split_weight_nch(w_j)
         size_i, size_j = l2_norm(np.subtract(back_i, front_i)) / 2, l2_norm(np.subtract(back_j, front_j)) / 2
@@ -67,6 +86,9 @@ class sDRN(DRN):
         return np.array(distance)
 
     def _distance_between_cluster_and_point(self, weight, sample):
+        """
+        Calculate the distance between given cluster weight and point sample.
+        """
         front, back = self._split_weight_nch(weight)
         size = l2_norm(np.subtract(back, front)) / 2
         distance_from_center = l2_norm(np.subtract(sample, np.add(front, back) / 2))
@@ -74,6 +96,9 @@ class sDRN(DRN):
         return np.array(distance)
 
     def _learning_condition(self, sample, idx):
+        """
+        Calculate the flag to whether proceed grouping process or not.
+        """
         weight = self.w[idx]
         volume_orig = self._volume_of_cluster(weight)
         adaptive_lr = 2 * np.divide(volume_orig, (self.dim * (1 - self.rho) * self._volume_of_cluster(self.wg)))
@@ -85,6 +110,12 @@ class sDRN(DRN):
         return np.array(condition), np.array(adaptive_lr)
 
     def train(self, x, epochs=1, shuffle=True, train=True):
+        """
+        x: Input in [#samples][channel][input_dimension] format.
+        epochs: #Epochs to iterate
+        shuffle: Flag for shuffling.
+        train: Flag showing whether it is train phase or test phase.
+        """
         classes = []
         # training for "epochs" times
         for epoch in range(epochs):
