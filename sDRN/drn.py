@@ -1,14 +1,9 @@
 import numpy as np
-from functools import partial
 import random
 import matplotlib.pyplot as plt
 import scipy.io as io
-
 import warnings
-
-
-l2_norm = partial(np.linalg.norm, ord=2, axis=-1)
-warnings.simplefilter(action='ignore', category=FutureWarning)
+from ..SFART.utils import l2_norm
 
 
 class DRN(object):
@@ -30,8 +25,10 @@ class DRN(object):
         self.tmp_mat_elem = tmp_mat_elem
         assert num_channel == len(input_dim), "num_channel should be array length of input_dim"
 
-    #    Utils functions
-    def extract_append(self, array, vector, ch):
+    @staticmethod
+    def extract_append(array, vector, ch):
+        """
+        """
         temp = []
         for i in range(len(vector)):
             temp.append(array[vector[i]][ch])
@@ -55,7 +52,6 @@ class DRN(object):
     def _split_weight_nch(self, weight, sample=None):
         # Weight is 2D, [ch][feature]
         # Sample is 1D, [feature] (within [ch])
-
         if sample is None:
             front_list = [weight[ch][:self.dim] for ch in range(len(weight))]
             back_list = [weight[ch][self.dim:] for ch in range(len(weight))]
@@ -67,16 +63,15 @@ class DRN(object):
             w2_list = np.minimum(sample, back_list)
             return np.array(front_list), np.array(back_list), np.array(w1_list), np.array(w2_list)
 
-    # Weight related functions
     def _init_weights(self, sample):
-
+        # Weight related functions
         self.w = np.atleast_2d([np.hstack((sample, sample))])
         self.wg = np.atleast_2d(np.hstack((sample, sample)))
         self.dim = self.input_dim[0]
         self.n_category += 1
 
-    # New node resonance related functions
     def _drn_activation(self, sample):
+        # New node resonance related functions
         activation = []
         for category in range(self.n_category):
             temp_activation = np.sum([np.exp(-self.alpha * self._distance(sample[ch], self.w[category][ch])) for ch in
@@ -158,7 +153,6 @@ class DRN(object):
                                     np.multiply((1 - lr), np.array(weight)))
         return np.array(updated_weight)
 
-    # Grouping related functions
     def _grouping(self):
         while True:
             resonance, idx_s, idx_l, w_ij_1_list, w_ij_2_list = self._condition_for_grouping()
@@ -220,7 +214,6 @@ class DRN(object):
         return False, 0, 0, 0, 0
 
     def _resonance_between_clusters(self, idx_s, idx_l):
-
         front = np.array([self.wg[ch][:self.dim] for ch in range(self.num_channel)])
         back = np.array([self.wg[ch][self.dim:] for ch in range(self.num_channel)])
         M = np.sum(np.abs(np.subtract(back, front)), axis=1)
@@ -248,7 +241,6 @@ class DRN(object):
             center_of_mass_list = (front + back) / 2
 
         else:
-
             to_connect = np.copy(v_nodes)
             to_connect = np.hstack((to_connect, self.n_category - 1))
 
@@ -272,24 +264,17 @@ class DRN(object):
                 if not T == 0 or v_nodes[0] in (smaller, larger):
                     self.group[(smaller, larger)] = T
 
-    # Train, test functions
     def train(self, x, epochs=1, shuffle=False, train=True):
-
         classes = []
 
         if shuffle:
             x = np.random.permutation(x)
 
-        i = 0
         for sample in x:
             # init the cluster weights for the first input vector
             if self.w is None and self.wg is None:
                 self._init_weights(sample)
                 continue
-            i += 1
-#            if i % 200 == 0:
-#                print(i, "th iteration ")
-            # global vector update
             self._update_global_weight(sample)
 
             # node activation & template matching

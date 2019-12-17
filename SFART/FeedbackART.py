@@ -12,7 +12,7 @@ class FeedbackART(ExpandableInputART):
         super().__init__(num_channel, input_dim, complement_coded, gamma, alpha,
                          rho, contribution_param)
 
-        self.memory = memory # True => conduct memory evolution
+        self.memory = memory  # True => conduct memory evolution
         self.memory_strength_default = memory_strength
         self.memory_decay_factor = memory_decay_factor
         self.memory_reinforcement = memory_reinforcement

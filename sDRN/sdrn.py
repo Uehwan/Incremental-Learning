@@ -1,12 +1,8 @@
 import numpy as np
-from functools import partial
 from drn import DRN
 import random
 import warnings
-
-
-l2_norm = partial(np.linalg.norm, ord=2, axis=-1)
-warnings.simplefilter(action='ignore', category=FutureWarning)
+from ..SFART.utils import l2_norm
 
 
 class sDRN(DRN):
@@ -23,8 +19,7 @@ class sDRN(DRN):
             if cluster == idx:
                 continue
             IoV, UoV = self._intersection_of_volume(self.w[cluster], self.w[idx])
-#            if IoV==1:
-#                print("IoV is 1")
+
             if all(UoV < self.dim * (1 - self.rho) * self._volume_of_cluster(self.wg)):
                 distance = self._distance_between_clusters(self.w[cluster], self.w[idx])
                 dist_glob = np.array([l2_norm(np.extract(self.wg[ch][self.dim:], self.wg[ch][:self.dim])) for ch in range(self.num_channel)])
@@ -38,9 +33,6 @@ class sDRN(DRN):
                 e = all(cluster_size_check)
 
                 if (((a and b) or c) and d) and e:
-                #if a and b or c and d:
-                #if all(IoV > self.iov) and sum > max_iov or all(distance < np.multiply(self.dist, dist_glob)) and all(IoV > self.iov / 2):
-                #if all(IoV > self.iov) and sum > max_iov:
                     to_cluster, max_iov = cluster, sum
 
         if to_cluster:
@@ -59,8 +51,8 @@ class sDRN(DRN):
         return np.hstack((u_front, u_back))
 
     def _intersection_of_volume(self, w_i, w_j):
-        w_i=w_i
-        w_j=w_j
+        w_i = w_i
+        w_j = w_j
         volume1, volume2 = self._volume_of_cluster(w_i), self._volume_of_cluster(w_j)
         union_weight = self._union_of_clusters(w_i, w_j)
         union_volume = self._volume_of_cluster(union_weight)
@@ -93,22 +85,18 @@ class sDRN(DRN):
         return np.array(condition), np.array(adaptive_lr)
 
     def train(self, x, epochs=1, shuffle=True, train=True):
-
         classes = []
         # training for "epochs" times
         for epoch in range(epochs):
             # randomly shuffle data
             if shuffle:
                 x = np.random.permutation(x)
-            i = 0
+
             for sample in x:
                 # init the cluster weights for the first input vector
                 if self.w is None and self.wg is None:
                     self._init_weights(sample)
                     continue
-                i += 1
-#                if i % 200 == 0:
-#                    print(i, "th iteration ")
 
                 # global vector update without grouping
                 self._update_global_weight(sample, True)
@@ -125,8 +113,6 @@ class sDRN(DRN):
                     if all(match_val) and all(condition):
                         # update weight for the cluster
                         category = v_node_selection[0]
-                        #self.w[category] = self._update_weight(sample, self.w[category], adaptive_lr)
-
                         self.w[category] = self._update_weight(sample, self.w[category], 0.1)
                     else:
                         # no matching occurred

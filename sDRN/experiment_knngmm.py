@@ -1,35 +1,46 @@
+import random
+import warnings
 import numpy as np
-from functools import partial
+import scipy.io as io
+
 from sklearn import metrics
 from sklearn.metrics.cluster import normalized_mutual_info_score
 from sklearn.metrics import davies_bouldin_score
-import warnings
-import random
-import scipy.io as io
+from sklearn import mixture
+from sklearn.cluster import KMeans
+
 from drn import DRN
 from sdrn import sDRN
+from ..SFART.utils import make_cluster_data, l2_norm
 
 
-l2_norm = partial(np.linalg.norm, ord=2, axis=-1)
-warnings.simplefilter(action='ignore', category=FutureWarning)
+def purity_score(y_true, y_pred):
+    # compute contingency matrix (also called confusion matrix)
+    contingency_matrix = metrics.cluster.contingency_matrix(y_true, y_pred)
+    # return purity
+    return np.sum(np.amax(contingency_matrix, axis=0)) / np.sum(contingency_matrix)
+
+
+def check_not_single_category(list):
+    if len(list) == 0:
+        print("list empty")
+        return False
+    else:
+        check = list[0]
+        for i in range(len(list)):
+            if check != list[i]:
+                return True
+        return False
 
 
 if __name__ == '__main__':
+    import csv
 
-    def make_cluster_data():
-        # TO DO: fixed mean, cov, num_cluster => parameterize!
-        x, y = np.array([]), np.array([])
-        mean = [[0.3, 0.2], [0.2, 0.7], [0.5, 0.5], [0.8, 0.4], [0.7, 0.8]]
-        cov = [[0.001, 0], [0, 0.001]]
-        for i in range(len(mean)):
-            x_temp, y_temp = np.random.multivariate_normal(mean[i], cov, 30).T
-            x = np.append(x, x_temp)
-            y = np.append(y, y_temp)
-        return x, y
-
+    warnings.simplefilter(action='ignore', category=FutureWarning)
     random.seed(43)
 
-    # Preparing lists
+    # s_list: synthetic data list
+    # r_list: real-world data list
     s_list, r_list = [], []
 
     # Synthetic data
@@ -51,26 +62,20 @@ if __name__ == '__main__':
     for i in range(300):
         for dim in range(2):
             s_data1[i][0][dim] = s_raw_data1[i][dim]
-    #    s_data1 = np.zeros([300,2,1])
-    #    for i in range(300):
-    #        for ch in range(2):
-    #            s_data1[i][ch][0] = s_raw_data1[i][ch]
     s_list.append({'data': s_data1})
 
     # s data2
-    import csv
     s_raw_data2 = []
 
     with open("data/2D_data/2D_joensuu_2000.CSV") as csvfile:
         reader = csv.reader(csvfile, quoting=csv.QUOTE_NONNUMERIC)  # change contents to floats
         for row in reader:  # each row is a list
             s_raw_data2.append(row)
-    # s_raw_data2 = np.array(s_raw_data2)
+
     s_raw_data2 = np.array(s_raw_data2) / 100
-    # s_raw_data2 = s_raw_data2 *100000000
     s_data2 = np.expand_dims(s_raw_data2, axis=1)  # channel 1 input_dims = [2,]
-    # results = np.expand_dims(results, axis=2) # channel 2 input_dims = [1,1]
     s_list.append({'data': s_data2})
+
     # Real data
     # Real data0
     r_raw_data0 = []
@@ -89,6 +94,17 @@ if __name__ == '__main__':
     # r_data0 = np.expand_dims(r_raw_data0, axis=2) # channel 4 input_dims = [1,1,1,1]
     r_list.append({'name': 'lens', 'data': r_data0, 'class': r_data0_class, 'raw_data': r_raw_data0})
 
+    '''
+    db_names = []
+    file_names = ["data/uci_real_data/balance_scale_dataset.data", "data/uci_real_data/bupa_dataset.data",
+                  "data/uci_real_data/transfusion_dataset.data", ]
+    data_ranges = [(1, 20), (0), ]
+
+    for db_name, file, one_range in zip(db_names, file_names, data_ranges):
+        raw_data_class = classasdf[:, one_range[0]:one_range[1]]
+        append(["db_name": db_name, ])
+    '''
+
     # Real data1
     cache_d1 = []
     f1 = open("data/uci_real_data/balance_scale_dataset.data", 'r')
@@ -104,8 +120,6 @@ if __name__ == '__main__':
         a = []
         for s in temp:
             a.append(int(float(s)))
-        #        del a[-1]
-        # line = line.split(' ')
         cache_d1.append(a)
 
     shff_cache_d1 = np.random.permutation(cache_d1)
@@ -227,43 +241,19 @@ if __name__ == '__main__':
         r_list[i]['data'] = r_list[i]['data'] * 1
         r_list[i]['raw_data'] = r_list[i]['raw_data'] * 1
 
-    def purity_score(y_true, y_pred):
-        # compute contingency matrix (also called confusion matrix)
-        contingency_matrix = metrics.cluster.contingency_matrix(y_true, y_pred)
-        # return purity
-        return np.sum(np.amax(contingency_matrix, axis=0)) / np.sum(contingency_matrix)
-
-    def check_notsingle_category(list):
-        if len(list) == 0:
-            print("list empty")
-            return False
-        else:
-            check = list[0]
-            for i in range(len(list)):
-                if check != list[i]:
-                    return True
-            return False
-
-    # elem_val = False; rho_val = 0.5; gp_val = 1; iov_val = 0.5
-    # elem_val = True; rho_val = 0.7; gp_val = 1; iov_val = 0.5
-    elem_val = True; rho_val = 0.9; gp_val = 1; iov_val = 0.5
-    num = 100
-    # Train_r_list = [1, 2, 3, 4, 5, 6]
+    batch_split_ratio = 0.5
+    elem_val = False; rho_val = 0.7; gp_val = 1; iov_val = 0.5
     Train_r_list = [1, 2, 3, 4, 5, 6]
+    num = 100
 
-    results = {}
+    knn_results = {}; gmm_results = {}
     for data_i in range(len(Train_r_list)):
-        results[data_i] = {'DBI': [], 'NMI': [], 'CP': [], 'name': []}
+        knn_results[data_i] = {'DBI': [], 'NMI': [], 'CP': [], 'name': []}
+        gmm_results[data_i] = {'DBI': [], 'NMI': [], 'CP': [], 'name': []}
 
     for i in range(num):
-        # r_data0_net = sDRN(num_channel=1, input_dim=[4, ], tmp_mat_elem=elem_val, lr=0.8, rho=rho_val, v=2, gp=gp_val, iov=iov_val)
-        # r_data1_net = sDRN(num_channel=1, input_dim=[4, ], tmp_mat_elem=elem_val, lr=0.8, rho=rho_val, v=2, gp=gp_val, iov=iov_val)
-        # r_data2_net = sDRN(num_channel=1, input_dim=[5, ], tmp_mat_elem=elem_val, lr=0.8, rho=rho_val, v=2, gp=gp_val, iov=iov_val)
-        # r_data3_net = sDRN(num_channel=1, input_dim=[4, ], tmp_mat_elem=elem_val, lr=0.8, rho=rho_val, v=2, gp=gp_val, iov=iov_val)
-        # r_data4_net = sDRN(num_channel=1, input_dim=[4, ], tmp_mat_elem=elem_val, lr=0.8, rho=rho_val, v=2, gp=gp_val, iov=iov_val)
-        # r_data5_net = sDRN(num_channel=1, input_dim=[6, ], tmp_mat_elem=elem_val, lr=0.8, rho=rho_val, v=2, gp=gp_val, iov=iov_val)
-        # r_data6_net = sDRN(num_channel=1, input_dim=[6, ], tmp_mat_elem=elem_val, lr=0.8, rho=rho_val, v=2, gp=gp_val, iov=iov_val)
-        # r_data7_net = sDRN(num_channel=1, input_dim=[5, ], tmp_mat_elem=elem_val, lr=0.8, rho=rho_val, v=2, gp=gp_val, iov=iov_val)
+        # for the sake of dimension match between s-DRN, GMM, and k-NN
+        # TODO: 아래 정리
         r_data0_net = DRN(num_channel=1, input_dim=[4, ], tmp_mat_elem=elem_val, lr=0.8, rho=rho_val, v=2)
         r_data1_net = DRN(num_channel=1, input_dim=[4, ], tmp_mat_elem=elem_val, lr=0.8, rho=rho_val, v=2)
         r_data2_net = DRN(num_channel=1, input_dim=[5, ], tmp_mat_elem=elem_val, lr=0.8, rho=rho_val, v=2)
@@ -273,25 +263,43 @@ if __name__ == '__main__':
         r_data6_net = DRN(num_channel=1, input_dim=[6, ], tmp_mat_elem=elem_val, lr=0.8, rho=rho_val, v=2)
         r_data7_net = DRN(num_channel=1, input_dim=[5, ], tmp_mat_elem=elem_val, lr=0.8, rho=rho_val, v=2)
 
-        # Add networks to list
         r_list[0]['net'] = r_data0_net; r_list[1]['net'] = r_data1_net; r_list[2]['net'] = r_data2_net; r_list[3]['net'] = r_data3_net
         r_list[4]['net'] = r_data4_net; r_list[5]['net'] = r_data5_net; r_list[6]['net'] = r_data6_net; r_list[7]['net'] = r_data7_net
 
         r_study_list = [r_list[i] for i in Train_r_list]
 
-        # Train networks
         for data_i in range(len(r_study_list)):
-            r_study_list[data_i]['net'].train(r_study_list[data_i]['data'], shuffle=True)
-            r_study_list[data_i]['category'] = r_study_list[data_i]['net'].test(r_study_list[data_i]['data'])
+            split_edge = int(batch_split_ratio*len(r_study_list[data_i]['raw_data']))
+            r_study_list[data_i]['batch_train'] = r_study_list[data_i]['raw_data'][:split_edge]
+            r_study_list[data_i]['batch_test'] = r_study_list[data_i]['raw_data'][split_edge:]
+            r_study_list[data_i]['batch_test_class'] = r_study_list[data_i]['class'][split_edge:]
 
         for data_i in range(len(r_study_list)):
-            if check_notsingle_category(r_study_list[data_i]['category']):
-                results[data_i]['name'].append(r_study_list[data_i]['name'])
-                results[data_i]['DBI'].append(davies_bouldin_score(r_study_list[data_i]['raw_data'], r_study_list[data_i]['category']))
-                results[data_i]['NMI'].append(normalized_mutual_info_score(r_study_list[data_i]['class'], r_study_list[data_i]['category']))
-                results[data_i]['CP'].append(purity_score(r_study_list[data_i]['class'], r_study_list[data_i]['category']))
+            r_study_list[data_i]['KNN_net'] = KMeans(n_clusters=r_study_list[data_i]['net'].input_dim[0]).fit(r_study_list[data_i]['batch_train'])
+            r_study_list[data_i]['KNN_category'] = r_study_list[data_i]['KNN_net'].predict(r_study_list[data_i]['batch_test'])
+            r_study_list[data_i]['GMM_net'] = mixture.GaussianMixture(n_components=r_study_list[data_i]['net'].input_dim[0], covariance_type='full').fit(r_study_list[data_i]['batch_train'])
+            r_study_list[data_i]['GMM_category'] = r_study_list[data_i]['GMM_net'].predict(r_study_list[data_i]['batch_test'])
+
+        for data_i in range(len(r_study_list)):
+            # print(r_study_list[data_i]['name'])
+            if check_not_single_category(r_study_list[data_i]['KNN_category']):
+                knn_results[data_i]['name'].append(r_study_list[data_i]['name'])
+                knn_results[data_i]['DBI'].append(davies_bouldin_score(r_study_list[data_i]['batch_test'], r_study_list[data_i]['KNN_category']))
+                knn_results[data_i]['NMI'].append(normalized_mutual_info_score(r_study_list[data_i]['batch_test_class'], r_study_list[data_i]['KNN_category']))
+                knn_results[data_i]['CP'].append(purity_score(r_study_list[data_i]['batch_test_class'], r_study_list[data_i]['KNN_category']))
+
+            if check_not_single_category(r_study_list[data_i]['GMM_category']):
+                gmm_results[data_i]['name'].append(r_study_list[data_i]['name'])
+                gmm_results[data_i]['DBI'].append(davies_bouldin_score(r_study_list[data_i]['batch_test'], r_study_list[data_i]['GMM_category']))
+                gmm_results[data_i]['NMI'].append(normalized_mutual_info_score(r_study_list[data_i]['batch_test_class'], r_study_list[data_i]['GMM_category']))
+                gmm_results[data_i]['CP'].append(purity_score(r_study_list[data_i]['batch_test_class'], r_study_list[data_i]['GMM_category']))
+
     for data_i in range(len(r_study_list)):
-        print(results[data_i]['name'])
-        print('DBI mean:', np.mean(results[data_i]['DBI']), 'DBI std:', np.std(results[data_i]['DBI']))
-        print('NMI mean:', np.mean(results[data_i]['NMI']), 'NMI std:', np.std(results[data_i]['NMI']))
-        print('CP mean:', np.mean(results[data_i]['CP']), 'CP std:', np.std(results[data_i]['CP']))
+        print('knn',knn_results[data_i]['name'][0])
+        print('DBI mean:', np.mean(knn_results[data_i]['DBI']), 'DBI std:', np.std(knn_results[data_i]['DBI']))
+        print('NMI mean:', np.mean(knn_results[data_i]['NMI']), 'NMI std:', np.std(knn_results[data_i]['NMI']))
+        print('CP mean:', np.mean(knn_results[data_i]['CP']), 'CP std:', np.std(knn_results[data_i]['CP']))
+        print('gmm',gmm_results[data_i]['name'][0])
+        print('DBI mean:', np.mean(gmm_results[data_i]['DBI']), 'DBI std:', np.std(gmm_results[data_i]['DBI']))
+        print('NMI mean:', np.mean(gmm_results[data_i]['NMI']), 'NMI std:', np.std(gmm_results[data_i]['NMI']))
+        print('CP mean:', np.mean(gmm_results[data_i]['CP']), 'CP std:', np.std(gmm_results[data_i]['CP']))

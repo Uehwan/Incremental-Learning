@@ -1,4 +1,8 @@
 import numpy as np
+from functools import partial
+
+
+l2_norm = partial(np.linalg.norm, ord=2, axis=-1)
 
 
 def fuzz_min_sum(x, y):
