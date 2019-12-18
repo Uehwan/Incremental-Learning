@@ -1,6 +1,6 @@
 from functools import partial
-import numpy as np
 
+import numpy as np
 
 l1_norm = partial(np.linalg.norm, ord=1, axis=-1)
 
@@ -70,7 +70,7 @@ class FusionART(object):
         for epoch in range(epochs):
             for sample in np.random.permutation(samples):
                 category = self._match_category(np.atleast_2d(sample))
-                #category = self._match_category(a)
+                # category = self._match_category(a)
                 if category == -1:
                     self._add_category(sample)
                 else:

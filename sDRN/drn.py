@@ -1,7 +1,8 @@
 import random
+
 import numpy as np
 
-from SFART.utils import l2_norm
+from SFEM.utils import l2_norm
 
 
 class DRN(object):
@@ -167,7 +168,6 @@ class DRN(object):
     def _add_category(self, sample):
         """
         Create category when template matching phase decides to create new cluster with sample.
-
         """
         self.n_category += 1
         new_weight = np.hstack((sample, sample))
@@ -207,7 +207,6 @@ class DRN(object):
     def _grouping(self):
         """
         Proceed grouping phase to group clusters which need to be united.
-
         """
         while True:
             resonance, idx_s, idx_l, w_ij_1_list, w_ij_2_list = self._condition_for_grouping()
@@ -293,25 +292,25 @@ class DRN(object):
         """
         Proceed necessary calculations for grouping
         """
-        # See the paper. front/back/center_of_mass should be vector
+        # Refer to the paper. front/back/center_of_mass should be vector
         # Mixed and calculate from vector to T in the T = np.exp ~~~ thing.
         center_of_mass_list = []
         if all(condition):
             to_connect = np.copy(v_nodes)
-            front = np.array([self._split_weight_nch(self.extract_append(self.w, v_nodes, ch), sample[ch])[0] for ch in
-                              range(self.num_channel)])
-            back = np.array([self._split_weight_nch(self.extract_append(self.w, v_nodes, ch), sample[ch])[1] for ch in
-                             range(self.num_channel)])
+            front = np.array([self._split_weight_nch(self.extract_append(self.w, v_nodes, ch), sample[ch])[0]
+                              for ch in range(self.num_channel)])
+            back = np.array([self._split_weight_nch(self.extract_append(self.w, v_nodes, ch), sample[ch])[1]
+                             for ch in range(self.num_channel)])
             center_of_mass_list = (front + back) / 2
 
         else:
             to_connect = np.copy(v_nodes)
             to_connect = np.hstack((to_connect, self.n_category - 1))
 
-            front = np.array([self._split_weight_nch(self.extract_append(self.w, v_nodes, ch), sample[ch])[0] for ch in
-                              range(self.num_channel)])
-            back = np.array([self._split_weight_nch(self.extract_append(self.w, v_nodes, ch), sample[ch])[1] for ch in
-                             range(self.num_channel)])
+            front = np.array([self._split_weight_nch(self.extract_append(self.w, v_nodes, ch), sample[ch])[0]
+                              for ch in range(self.num_channel)])
+            back = np.array([self._split_weight_nch(self.extract_append(self.w, v_nodes, ch), sample[ch])[1]
+                             for ch in range(self.num_channel)])
             center_of_mass_list = (front + back) / 2
             sample_list = np.array([sample for ch in range(self.num_channel)])
             center_of_mass_list = np.concatenate((center_of_mass_list, sample_list), axis=1)
@@ -322,8 +321,8 @@ class DRN(object):
                 # new connections get added (first condition)
                 # and synaptic strengths get updated (second condition)
                 T = np.sum(
-                    [np.exp(-self.alpha * l2_norm(center_of_mass_list[ch][first] - center_of_mass_list[ch][second])) for
-                     ch in range(self.num_channel)])
+                    [np.exp(-self.alpha * l2_norm(center_of_mass_list[ch][first] - center_of_mass_list[ch][second]))
+                     for ch in range(self.num_channel)])
 
                 if not T == 0 or v_nodes[0] in (smaller, larger):
                     self.group[(smaller, larger)] = T

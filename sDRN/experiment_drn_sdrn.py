@@ -1,19 +1,16 @@
+import csv
 import random
 import warnings
+
 import numpy as np
 import scipy.io as io
-
-from sklearn.metrics.cluster import normalized_mutual_info_score
-from sklearn.metrics import davies_bouldin_score
-
-from SFART.utils import make_cluster_data, purity_score, check_not_single_category
-from drn import DRN
 from sdrn import sDRN
+from sklearn.metrics import davies_bouldin_score
+from sklearn.metrics.cluster import normalized_mutual_info_score
 
+from SFEM.utils import make_cluster_data, purity_score, check_not_single_category
 
 if __name__ == '__main__':
-    import csv
-
     warnings.simplefilter(action='ignore', category=FutureWarning)
     random.seed(43)
 

@@ -1,16 +1,14 @@
 import random
 import warnings
+
+import matplotlib.pyplot as plt
 import numpy as np
 import scipy.io as io
-import matplotlib.pyplot as plt
-
-from SFART.utils import make_cluster_data
-from drn import DRN
 from sdrn import sDRN
 
+from SFEM.utils import make_cluster_data
 
 if __name__ == '__main__':
-
     warnings.simplefilter(action='ignore', category=FutureWarning)
     random.seed(43)
 

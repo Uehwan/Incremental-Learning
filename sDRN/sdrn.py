@@ -1,18 +1,21 @@
 import random
-import numpy as np
 
-from SFART.utils import l2_norm
+import numpy as np
 from drn import DRN
+
+from SFEM.utils import l2_norm
 
 
 class sDRN(DRN):
-    def __init__(self, num_channel, input_dim, tmp_mat_elem, lr=0.9, glr=1.0, alpha=1.0, rho=0.7, v=2, gp=1, iov=0.85, dist=0.2):
-        DRN.__init__(self, num_channel=num_channel, input_dim=input_dim, tmp_mat_elem=tmp_mat_elem, lr=lr, glr=glr, alpha=alpha, rho=rho, v=v)
+    def __init__(self, num_channel, input_dim, tmp_mat_elem,
+                 lr=0.9, glr=1.0, alpha=1.0, rho=0.7, v=2, gp=1, iov=0.85, dist=0.2):
+        DRN.__init__(self, num_channel=num_channel, input_dim=input_dim, tmp_mat_elem=tmp_mat_elem,
+                     lr=lr, glr=glr, alpha=alpha, rho=rho, v=v)
         self.gp = gp  # probability for grouping
         self.iov = iov  # intersection of volume (IoV) condition for grouping two clusters
         self.dist = dist  # distance parameter
 
-    def _grouping(self, idx)
+    def _grouping(self, idx):
         """
         Proceed grouping phase to group clusters which need to be united.
         Conditions for grouping is calculated, and finally proceed grouping or not.
@@ -26,7 +29,8 @@ class sDRN(DRN):
 
             if all(UoV < self.dim * (1 - self.rho) * self._volume_of_cluster(self.wg)):
                 distance = self._distance_between_clusters(self.w[cluster], self.w[idx])
-                dist_glob = np.array([l2_norm(np.extract(self.wg[ch][self.dim:], self.wg[ch][:self.dim])) for ch in range(self.num_channel)])
+                dist_glob = np.array([l2_norm(np.extract(self.wg[ch][self.dim:], self.wg[ch][:self.dim]))
+                                      for ch in range(self.num_channel)])
                 sum = np.sum(IoV)
                 a = all(IoV > self.iov)
                 b = sum > max_iov
@@ -105,7 +109,8 @@ class sDRN(DRN):
         adaptive_lr = np.minimum(adaptive_lr, self.lr)
         if adaptive_lr ==0:
             adaptive_lr=0.1
-        dist_glob = np.array([l2_norm(np.subtract(self.wg[ch][self.dim:], self.wg[ch][:self.dim])) for ch in range(self.num_channel)])
+        dist_glob = np.array([l2_norm(np.subtract(self.wg[ch][self.dim:], self.wg[ch][:self.dim]))
+                              for ch in range(self.num_channel)])
         condition = self._distance_between_cluster_and_point(weight, sample) < self.dist * dist_glob
         return np.array(condition), np.array(adaptive_lr)
 

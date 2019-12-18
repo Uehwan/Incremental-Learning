@@ -1,14 +1,17 @@
-import numpy as np
 from functools import partial
+
+import numpy as np
 from sklearn import metrics
 
 l2_norm = partial(np.linalg.norm, ord=2, axis=-1)
+
 
 def purity_score(y_true, y_pred):
     # compute contingency matrix (also called confusion matrix)
     contingency_matrix = metrics.cluster.contingency_matrix(y_true, y_pred)
     # return purity
     return np.sum(np.amax(contingency_matrix, axis=0)) / np.sum(contingency_matrix)
+
 
 def check_not_single_category(list):
     if len(list) == 0:
@@ -20,6 +23,7 @@ def check_not_single_category(list):
             if check != list[i]:
                 return True
         return False
+
 
 def fuzz_min_sum(x, y):
     """ Calculate fuzzy_min and sum over vectors
@@ -34,9 +38,9 @@ def fuzz_min_sum(x, y):
 def normalized_euc_dist(x, y, coded):
     assert len(x) == len(y), "length of input vectors do not match"
     if coded:
-        data_point = x[:len(x)//2]
-        complemented = np.ones(len(y[len(y)//2:])) - y[len(y)//2:]
-        center_point = (y[:len(y)//2] + complemented) / 2
+        data_point = x[:len(x) // 2]
+        complemented = np.ones(len(y[len(y) // 2:])) - y[len(y) // 2:]
+        center_point = (y[:len(y) // 2] + complemented) / 2
         return 1 - np.sqrt(sum((data_point - center_point) * (data_point - center_point))) / np.sqrt(len(x) // 2)
     return 1 - np.sqrt(sum((x - y) * (x - y)) / np.sqrt(len(x)))
 
@@ -70,7 +74,7 @@ def make_cluster_data():
 
 def make_2d_seq_data(seq_len):
     x, y = make_cluster_data()
-    indices = np.random.choice(len(x)-1, size=seq_len, replace=False)
+    indices = np.random.choice(len(x) - 1, size=seq_len, replace=False)
     return [[np.array([x[idx]]), np.array([y[idx]])] for idx in indices]
 
 

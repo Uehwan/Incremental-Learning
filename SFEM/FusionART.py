@@ -1,5 +1,5 @@
 import numpy as np
-from utils import fuzz_min_sum, normalized_euc_dist
+from utils import fuzz_min_sum
 
 
 class FusionART:
@@ -10,6 +10,7 @@ class FusionART:
     in Proc. Int. Joint Conf. Neural Netw., vol. 2, 1991, pp. 411–416.
 
     """
+
     def __init__(self, num_channel, input_dim, complement_coding=True, gamma=0.01,
                  alpha=0.5, rho=0.9, contribution_param=""):
 
@@ -44,7 +45,7 @@ class FusionART:
         activations = []
         for category in range(self.n_category):
             activations.append(np.sum([self.contribution_param * fuzz_min_sum(train_vector[ch], self.w[category][ch])
-                                    / (self.gamma + sum(self.w[category][ch])) for ch in range(self.num_channel)]))
+                                       / (self.gamma + sum(self.w[category][ch])) for ch in range(self.num_channel)]))
         return np.array(activations)
 
     def readout(self, idx):
@@ -63,11 +64,11 @@ class FusionART:
 
     def _template_matching(self, sample, max_id):
         return np.array([fuzz_min_sum(sample[ch], self.w[max_id][ch]) / (len(sample[ch]) / 2)
-                              > self.rho[max_id] for ch in range(self.num_channel)])
+                         > self.rho[max_id] for ch in range(self.num_channel)])
 
     def _complement_coding(self, sample):
         if self.complement_coding:
-            result = np.array([np.hstack((sample[ch], 1-sample[ch])) for ch in range(self.num_channel)])
+            result = np.array([np.hstack((sample[ch], 1 - sample[ch])) for ch in range(self.num_channel)])
             return result
         else:
             return sample
@@ -88,10 +89,11 @@ class FusionART:
                 match_val = self._template_matching(comp_sample, max_id)
 
                 # phase 5: template learning
-                if all(match_val): # template learning occurs
+                if all(match_val):  # template learning occurs
                     for ch in range(self.num_channel):
-                        self.w[max_id][ch] = (1-self.alpha)*self.w[max_id][ch] + self.alpha*np.minimum(comp_sample[ch], self.w[max_id][ch])
-                else: # create a new category
+                        self.w[max_id][ch] = (1 - self.alpha) * self.w[max_id][ch] + self.alpha * np.minimum(
+                            comp_sample[ch], self.w[max_id][ch])
+                else:  # create a new category
                     self.n_category += 1
                     self.w.append(comp_sample)
                     self.rho = np.append(self.rho, self.rho_default)
@@ -154,8 +156,8 @@ if __name__ == "__main__":
             ax.add_patch(
                 patches.Rectangle(
                     (w11, w12),
-                    1-w21-w11,
-                    1-w22-w12,
+                    1 - w21 - w11,
+                    1 - w22 - w12,
                     fill=False,  # remove background
                     edgecolor='r'
                 )
@@ -167,7 +169,7 @@ if __name__ == "__main__":
 
     elif example == 2:
         # Synthetic data 2
-        testART = FusionART(2, [1,1], complement_coding=True, rho=0.75)
+        testART = FusionART(2, [1, 1], complement_coding=True, rho=0.75)
 
         # training the FusionART
         x, y = make_cluster_data()
@@ -177,7 +179,7 @@ if __name__ == "__main__":
 
         s_raw_data = []
         for i in range(len(x)):
-            #s_raw_data.append([[x[i], y[i]]])
+            # s_raw_data.append([[x[i], y[i]]])
             s_raw_data.append([[x[i]], [y[i]]])
         s_data = np.array(s_raw_data)
 
@@ -187,10 +189,12 @@ if __name__ == "__main__":
         data_classified_x, data_classified_y = [[np.array([]) for _ in range(testART.n_category)] for _ in range(2)]
 
         for i in range(len(category)):
-            #data_classified_x[int(category[i])] = np.append(data_classified_x[int(category[i])], np.array([s_data[i][0][0]]))
-            #data_classified_y[int(category[i])] = np.append(data_classified_y[int(category[i])], np.array([s_data[i][0][1]]))
-            data_classified_x[int(category[i])] = np.append(data_classified_x[int(category[i])], np.array([s_data[i][0][0]]))
-            data_classified_y[int(category[i])] = np.append(data_classified_y[int(category[i])], np.array([s_data[i][1][0]]))
+            # data_classified_x[int(category[i])] = np.append(data_classified_x[int(category[i])], np.array([s_data[i][0][0]]))
+            # data_classified_y[int(category[i])] = np.append(data_classified_y[int(category[i])], np.array([s_data[i][0][1]]))
+            data_classified_x[int(category[i])] = np.append(data_classified_x[int(category[i])],
+                                                            np.array([s_data[i][0][0]]))
+            data_classified_y[int(category[i])] = np.append(data_classified_y[int(category[i])],
+                                                            np.array([s_data[i][1][0]]))
         plt.figure()
         for i in range(testART.n_category):
             plt.plot(data_classified_x[i], data_classified_y[i], 'x')

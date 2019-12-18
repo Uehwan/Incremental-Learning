@@ -1,9 +1,14 @@
 import numpy as np
-from utils import complement_coding, fuzz_min_sum
 from EMART import ExpandableInputART
+from utils import fuzz_min_sum
 
 
 class FeedbackART(ExpandableInputART):
+    """
+    FeedbackART accepts user feedback and modulates the strength of the corresponding
+    memory component
+    """
+
     def __init__(self, num_channel, input_dim, complement_coded=True, gamma=0.01,
                  alpha=0.3, rho=0.9, contribution_param="", memory_strength=0.75,
                  memory_decay_factor=0.01, memory_reinforcement=0.15, memory_threshold=0.1, memory=True):
@@ -22,7 +27,7 @@ class FeedbackART(ExpandableInputART):
         self.rho_reinforcement = self.memory_reinforcement / 2
 
         # memory strength for each category
-        self.memory_strength =[self.memory_strength_default for _ in range(self.n_category)]
+        self.memory_strength = [self.memory_strength_default for _ in range(self.n_category)]
 
     def train(self, x, shuffle=True, train=True):
         """
@@ -45,12 +50,12 @@ class FeedbackART(ExpandableInputART):
                 match_val = self._template_matching(comp_sample, max_id)
 
                 # phase 5: template learning
-                if all(match_val): # template learning occurs
+                if all(match_val):  # template learning occurs
                     for i in range(self.num_channel):
-                        self.w[max_id][i] = (1-self.alpha)*self.w[max_id][i] + \
-                                            self.alpha*np.minimum(comp_sample[i], self.w[max_id][i])
+                        self.w[max_id][i] = (1 - self.alpha) * self.w[max_id][i] + \
+                                            self.alpha * np.minimum(comp_sample[i], self.w[max_id][i])
 
-                else: # create a new category
+                else:  # create a new category
                     self.n_category += 1
                     self.w.append(comp_sample)
                     self.rho = np.append(self.rho, self.rho_default)
@@ -93,14 +98,14 @@ class FeedbackART(ExpandableInputART):
         for ms in range(len(self.memory_strength)):
             self.memory_strength[ms] *= (1 - self.memory_decay_factor)
 
-        if new_category_generated: # idx == len(self.memory_strength):
+        if new_category_generated:  # idx == len(self.memory_strength):
             # new category detected
             self.memory_strength.append(self.memory_strength_default)
         else:
             # read the memory strength to process
             tmp = self.memory_strength[idx]
             # recover from decaying
-            tmp *= 1/(1 - self.memory_decay_factor )
+            tmp *= 1 / (1 - self.memory_decay_factor)
             # reinforce the memory
             self.memory_strength[idx] = tmp + (1 - tmp) * self.memory_reinforcement
 
@@ -120,9 +125,9 @@ class FeedbackART(ExpandableInputART):
             self.rho = np.delete(self.rho, index, axis=0)
             self.memory_strength = np.delete(self.memory_strength, index, axis=0)
 
-            #del self.w[index]
-            #del self.rho[index]
-            #del self.memory_strength[index]
+            # del self.w[index]
+            # del self.rho[index]
+            # del self.memory_strength[index]
         return idx
 
     def feedback(self, user_feedback):
@@ -142,7 +147,7 @@ class FeedbackART(ExpandableInputART):
             criterion = prev_memory >= self.memory_strength_default * (1 - self.memory_decay_factor) ** 5
             if criterion:
                 # revert reinforcement of prev_memory
-                prev_memory = (prev_memory - self.memory_reinforcement)/(1 - self.memory_reinforcement)
+                prev_memory = (prev_memory - self.memory_reinforcement) / (1 - self.memory_reinforcement)
                 # calculate current memory
                 curr_memory = prev_memory * (1 - self.memory_decay_factor) ** 2
             else:
@@ -162,12 +167,12 @@ class FeedbackART(ExpandableInputART):
 if __name__ == "__main__":
     # Demo: FusionART for clustering
     from numpy import random
-    import matplotlib.patches as patches
     import matplotlib.pyplot as plt
     from utils import make_cluster_data
+
     random.seed(43)
 
-    testART = FeedbackART(1, [2,], complement_coded=True, rho=0.9)
+    testART = FeedbackART(1, [2, ], complement_coded=True, rho=0.9)
 
     # training the FusionART
     x, y = make_cluster_data()
@@ -178,7 +183,7 @@ if __name__ == "__main__":
     s_raw_data = []
     for i in range(len(x)):
         s_raw_data.append([[x[i], y[i]]])
-        #s_raw_data.append([[x[i]], [y[i]]])
+        # s_raw_data.append([[x[i]], [y[i]]])
     s_data = np.array(s_raw_data)
     """ 
     To test stability of ART
@@ -192,13 +197,14 @@ if __name__ == "__main__":
     data_classified_x, data_classified_y = [[np.array([]) for _ in range(testART.n_category)] for _ in range(2)]
 
     for i in range(len(category)):
-        data_classified_x[int(category[i])] = np.append(data_classified_x[int(category[i])], np.array([s_data[i][0][0]]))
-        data_classified_y[int(category[i])] = np.append(data_classified_y[int(category[i])], np.array([s_data[i][0][1]]))
-        #data_classified_x[int(category[i])] = np.append(data_classified_x[int(category[i])], np.array([s_data[i][0][0]]))
-        #data_classified_y[int(category[i])] = np.append(data_classified_y[int(category[i])], np.array([s_data[i][1][0]]))
+        data_classified_x[int(category[i])] = np.append(data_classified_x[int(category[i])],
+                                                        np.array([s_data[i][0][0]]))
+        data_classified_y[int(category[i])] = np.append(data_classified_y[int(category[i])],
+                                                        np.array([s_data[i][0][1]]))
+        # data_classified_x[int(category[i])] = np.append(data_classified_x[int(category[i])], np.array([s_data[i][0][0]]))
+        # data_classified_y[int(category[i])] = np.append(data_classified_y[int(category[i])], np.array([s_data[i][1][0]]))
     plt.figure()
     for i in range(testART.n_category):
         plt.plot(data_classified_x[i], data_classified_y[i], 'x')
 
     plt.title('Classification result'), plt.show()
-
